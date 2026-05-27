@@ -1,4 +1,4 @@
-// Version: 1.3.0 - 新增 Undo/Redo、對讀模式、禪風主題、修行筆記、鳥瞰圖與 AI 輔助生成
+// Version: 1.3.1 - 修正模式預設順序、優化 AI 解析穩定度與錯誤提示、修復修行筆記區塊顯示問題
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -293,8 +293,8 @@ const TreeNode = React.memo(({
             </div>
           )}
 
-          {/* 修行觀察札記區 */}
-          {isNoteVisible && mode !== 'split' && (
+          {/* 修行觀察札記區 (已修復：不再受 mode !== 'split' 的阻擋) */}
+          {isNoteVisible && (
             <div className={`mb-2 p-3 rounded-lg border-l-4 border-amber-400 shadow-sm relative ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
               <div className="flex items-center gap-2 mb-1 text-xs font-bold text-amber-600/70 uppercase tracking-widest">
                 <Leaf size={12} /> Dharma Journaling
@@ -342,8 +342,8 @@ export default function App() {
   const [historyIndex, setHistoryIndex] = useState(0);
   const kepanTree = history[historyIndex];
 
-  // 視圖與UI狀態
-  const [mode, setMode] = useState('outline'); // 'text' | 'outline' | 'split' | 'map'
+  // 視圖與UI狀態 - 預設改為 'text' (原文模式)
+  const [mode, setMode] = useState('text'); 
   const [theme, setTheme] = useState('default');
   const [focusId, setFocusId] = useState(null); 
   const [expandedTreeNodes, setExpandedTreeNodes] = useState(new Set(['root-1']));
@@ -692,42 +692,33 @@ export default function App() {
     }
   }, [kepanTree, dragInfo, commitChange]);
 
-  // --- AI 輔助生成 (Exponential Backoff + API) ---
+  // --- AI 輔助生成 (已優化容錯處理與錯誤提示) ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
     setIsAILoadingId(nodeId);
     
-    const actualKey = userApiKey || ""; // 優先使用使用者輸入，若無則留空套用環境預設
+    const actualKey = userApiKey || ""; 
     const prompt = `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。
     必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):
     [ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]
     
+    注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字或 Markdown 標記。
     原文內容：\n${targetNode.content}`;
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
-      systemInstruction: { parts: [{ text: "你是一個專業的佛學科判編輯助理。請將提供的文本進行精確的意群切割，並返回嚴格的 JSON 陣列結構。不要包含 Markdown 格式符號(如 ```json) 以外的額外文字。" }] },
+      systemInstruction: { parts: [{ text: "你是一個專業的佛學科判編輯助理。請將提供的文本進行精確的意群切割，並返回嚴格的 JSON 陣列結構。不要包含 ```json 以外的額外文字。" }] },
       generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "ARRAY",
-          items: {
-            type: "OBJECT",
-            properties: {
-              title: { type: "STRING" },
-              content: { type: "STRING" },
-              note: { type: "STRING" }
-            }
-          }
-        }
+        responseMimeType: "application/json"
       }
     };
 
     let attempt = 0;
-    const maxAttempts = 5;
-    const delays = [1000, 2000, 4000, 8000, 16000];
+    const maxAttempts = 3;
+    const delays = [1000, 2000, 4000];
+    let lastErrorMsg = "";
 
     while (attempt < maxAttempts) {
       try {
@@ -737,18 +728,22 @@ export default function App() {
           body: JSON.stringify(payload)
         });
 
-        if (!response.ok) throw new Error('API Request failed');
+        if (!response.ok) {
+          const errorTxt = await response.text();
+          throw new Error(`HTTP ${response.status} - ${errorTxt}`);
+        }
         
         const result = await response.json();
-        const textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
         
         if (textResult) {
+          // 強制清理可能出現的 Markdown 標記以避免 JSON.parse 失敗
+          textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
           const generatedNodes = JSON.parse(textResult);
           
           const clonedTree = deepCloneKepanTree(kepanTree);
           const tNode = findNodeInKepanTree(clonedTree, nodeId);
           if (tNode) {
-            // 清空原本內文（因為已分配給子節點），並加入 AI 節點
             tNode.content = ""; 
             tNode.children = generatedNodes.map(n => ({
               id: generateUniqueId(),
@@ -760,18 +755,22 @@ export default function App() {
             commitChange(clonedTree);
             setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
           }
-          break; // 成功則跳出重試迴圈
+          setIsAILoadingId(null);
+          return; // 成功即結束
+        } else {
+          throw new Error("API 回傳結果為空");
         }
       } catch (error) {
+        lastErrorMsg = error.message;
         attempt++;
-        if (attempt >= maxAttempts) {
-          alert("AI 模型目前忙碌中或金鑰無效，請稍後再試。");
-          console.error("AI Generation Failed:", error);
-        } else {
+        if (attempt < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
         }
       }
     }
+    
+    // 如果重試皆失敗，顯示具體的錯誤原因讓用戶可以除錯
+    alert(`AI 骨架生成失敗。\n原因: ${lastErrorMsg}\n請確認您的 API 金鑰是否有效，或模型是否目前超載。`);
     setIsAILoadingId(null);
   };
 
@@ -870,18 +869,18 @@ export default function App() {
             聞思科判編輯器
           </h1>
           
-          <div className={`flex rounded-lg p-1 border ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-stone-100 border-stone-200'}`}>
-            <button onClick={() => setMode('outline')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'outline' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="科判模式">
-              <ListTree size={16} />
-            </button>
+          <div className={`flex rounded-lg p-1 border gap-1 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-stone-100 border-stone-200'}`}>
             <button onClick={() => setMode('text')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'text' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="原文模式">
-              <BookText size={16} />
+              <BookText size={16} /> <span className="hidden sm:inline">原文模式</span>
+            </button>
+            <button onClick={() => setMode('outline')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'outline' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="科判模式">
+              <ListTree size={16} /> <span className="hidden sm:inline">科判模式</span>
             </button>
             <button onClick={() => setMode('split')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'split' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="對讀連動模式">
-              <Columns size={16} />
+              <Columns size={16} /> <span className="hidden sm:inline">對讀模式</span>
             </button>
             <button onClick={() => setMode('map')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'map' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="總體骨架鳥瞰圖">
-              <Map size={16} />
+              <Map size={16} /> <span className="hidden sm:inline">鳥瞰模式</span>
             </button>
           </div>
         </div>
