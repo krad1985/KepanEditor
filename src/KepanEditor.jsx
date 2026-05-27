@@ -1,4 +1,4 @@
-// Version: 1.3.2 - 實作 AI 模型輪詢 fallback 機制、修復向上合併邏輯、移除原生 alert 改用 Toast UI
+// Version: 1.4.1 - 修復 AI 生成結果覆蓋現有子節點的問題，保留已拆分的段落
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -43,6 +43,22 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "note": "",
   "children": []
 }];
+
+// --- AI 提示詞預設模板 ---
+const AI_PROMPT_PRESETS = [
+  {
+    label: '預設：依意群適度拆分',
+    value: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`
+  },
+  {
+    label: '細緻：逐句/小段落詳細拆分',
+    value: `請將以下原文進行非常細緻的逐句或小段落拆分，適合深度研討。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "精煉標題", "content": "詳細內文段落", "note": "" } ]\n\n注意：只回傳 JSON 陣列，無多餘文字。`
+  },
+  {
+    label: '簡要：僅提煉核心骨架 (不保留全文)',
+    value: `請閱讀以下原文，僅提煉出最核心的科判大綱骨架，不需保留完整內文，將重點摘要放入 note 中。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "核心標題", "content": "", "note": "重點摘要" } ]\n\n注意：只回傳 JSON 陣列。`
+  }
+];
 
 // --- 主題設定 ---
 const THEMES = {
@@ -139,7 +155,7 @@ const TreeNode = React.memo(({
 
   return (
     <div className={`
-      ${mode === 'text' ? 'mb-4' : 'mb-2'} 
+      ${mode === 'text' ? 'mb-0' : 'mb-2'} 
       ${(mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0'}
       ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'}
       transition-all duration-200
@@ -147,7 +163,7 @@ const TreeNode = React.memo(({
       <div 
         onDragOver={(e) => actions.handleDragOver(e, kepanNode.id)}
         onDrop={(e) => actions.handleDrop(e, kepanNode.id)}
-        className={`group relative flex items-start gap-1 p-1.5 -ml-1.5 transition-colors ${dropZoneClass}`}
+        className={`group relative flex items-start gap-1 p-1 -ml-1 transition-colors ${dropZoneClass}`}
         onClick={handleNodeClick}
       >
         
@@ -174,7 +190,7 @@ const TreeNode = React.memo(({
         )}
 
         <div className="flex-1 w-full min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <input
               id={`input-${kepanNode.id}`}
               type="text"
@@ -185,7 +201,7 @@ const TreeNode = React.memo(({
               className={`
                 font-bold bg-transparent border-b border-transparent focus:border-teal-500 focus:outline-none transition-all flex-1 min-w-[150px]
                 ${colorClass} 
-                ${mode === 'text' ? `${textSizeClass} mb-1 pb-1` : 'text-lg'}
+                ${mode === 'text' ? `${textSizeClass} mt-3 mb-0 pb-0` : 'text-lg mb-1 pb-1'}
               `}
             />
             
@@ -235,7 +251,7 @@ const TreeNode = React.memo(({
           {deleteMenuId === kepanNode.id && (
             <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
               <span className={`font-medium ml-1 ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>刪除選項：</span>
-              <button onClick={() => actions.mergeUpKepanNode(kepanNode.id)} className="px-3 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 rounded transition-colors" title="標題刪除，內文與子節點併入上一段">
+              <button onClick={() => actions.mergeUpKepanNode(kepanNode.id)} className="px-3 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 rounded transition-colors" title="刪除此標題，內文與子節點併入上一段">
                 向上合併
               </button>
               <button onClick={() => actions.deleteKepanNode(kepanNode.id)} className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-500 rounded transition-colors" title="徹底刪除此標題與其下所有內容">
@@ -248,7 +264,7 @@ const TreeNode = React.memo(({
           )}
 
           {isContentVisible && mode !== 'split' && (
-            <div className="relative group/text mb-2">
+            <div className="relative group/text mb-1 mt-1">
               <textarea
                 ref={textareaRef}
                 value={kepanNode.content}
@@ -256,7 +272,7 @@ const TreeNode = React.memo(({
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 className={`
                   w-full bg-transparent resize-none overflow-hidden focus:outline-none transition-all
-                  ${mode === 'outline' ? `text-sm p-2 rounded border ${isDark ? 'text-stone-400 bg-stone-800/50 border-stone-700' : 'text-stone-500 bg-stone-50/50 border-stone-100'}` : `text-base leading-relaxed p-1 rounded ${isDark ? 'text-stone-300 hover:bg-stone-800/50 focus:bg-stone-800/50' : 'text-stone-800 hover:bg-stone-50 focus:bg-stone-50'}`}
+                  ${mode === 'outline' ? `text-sm p-2 rounded border ${isDark ? 'text-stone-400 bg-stone-800/50 border-stone-700' : 'text-stone-500 bg-stone-50/50 border-stone-100'}` : `text-base leading-relaxed p-0 hover:bg-stone-50/50 focus:bg-stone-50/50 rounded ${isDark ? 'text-stone-300 hover:bg-stone-800/30 focus:bg-stone-800/30' : 'text-stone-800'}`}
                 `}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -278,7 +294,7 @@ const TreeNode = React.memo(({
           )}
 
           {isNoteVisible && (
-            <div className={`mb-2 p-3 rounded-lg border-l-4 border-amber-400 shadow-sm relative ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
+            <div className={`mb-2 mt-2 p-3 rounded-lg border-l-4 border-amber-400 shadow-sm relative ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
               <div className="flex items-center gap-2 mb-1 text-xs font-bold text-amber-600/70 uppercase tracking-widest">
                 <Leaf size={12} /> Dharma Journaling
               </div>
@@ -296,7 +312,7 @@ const TreeNode = React.memo(({
       </div>
 
       {hasChildren && (mode === 'text' || mode === 'split' || isTreeExpanded) && (
-        <div className="mt-1">
+        <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
               key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} theme={theme}
@@ -312,18 +328,21 @@ const TreeNode = React.memo(({
 
 // --- 主應用程式 ---
 export default function App() {
-  const [history, setHistory] = useState(() => {
+  const [historyState, setHistoryState] = useState(() => {
     try {
       const savedTree = localStorage.getItem('outline_editor_autosave_v3');
-      return savedTree ? [JSON.parse(savedTree)] : [INITIAL_EMPTY_KEPAN_TREE];
+      return {
+        past: [],
+        present: savedTree ? JSON.parse(savedTree) : INITIAL_EMPTY_KEPAN_TREE,
+        future: []
+      };
     } catch (error) {
-      return [INITIAL_EMPTY_KEPAN_TREE];
+      return { past: [], present: INITIAL_EMPTY_KEPAN_TREE, future: [] };
     }
   });
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const kepanTree = history[historyIndex];
 
-  // 預設切換為原文模式
+  const kepanTree = historyState.present;
+
   const [mode, setMode] = useState('text'); 
   const [theme, setTheme] = useState('default');
   const [focusId, setFocusId] = useState(null); 
@@ -334,10 +353,10 @@ export default function App() {
   const [dragInfo, setDragInfo] = useState({ draggedId: null, overId: null, position: null });
   
   const [showSettings, setShowSettings] = useState(false);
-  const [userApiKey, setUserApiKey] = useState('');
+  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
+  const [aiPrompt, setAiPrompt] = useState(() => localStorage.getItem('outline_ai_prompt') || AI_PROMPT_PRESETS[0].value);
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   
-  // Custom Toast Message State
   const [toastMessage, setToastMessage] = useState(null);
 
   const showToast = useCallback((msg, duration = 5000) => {
@@ -351,35 +370,41 @@ export default function App() {
     } catch (error) {}
   }, [kepanTree]);
 
+  const commitChange = useCallback((updaterOrTree) => {
+    setHistoryState(prevState => {
+      const currentTree = prevState.present;
+      const newTree = typeof updaterOrTree === 'function' ? updaterOrTree(currentTree) : updaterOrTree;
+      const newPast = [...prevState.past, currentTree].slice(-50);
+      return { past: newPast, present: newTree, future: [] };
+    });
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    setHistoryState(prevState => {
+      if (prevState.past.length === 0) return prevState;
+      const newPast = [...prevState.past];
+      const previousTree = newPast.pop();
+      return { past: newPast, present: previousTree, future: [prevState.present, ...prevState.future] };
+    });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    setHistoryState(prevState => {
+      if (prevState.future.length === 0) return prevState;
+      const newFuture = [...prevState.future];
+      const nextTree = newFuture.shift();
+      return { past: [...prevState.past, prevState.present], present: nextTree, future: newFuture };
+    });
+  }, []);
+
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault();
-        handleUndo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  });
-
-  const commitChange = useCallback((newTree) => {
-    const nextHistory = history.slice(0, historyIndex + 1);
-    nextHistory.push(newTree);
-    if (nextHistory.length > 50) nextHistory.shift(); 
-    setHistory(nextHistory);
-    setHistoryIndex(nextHistory.length - 1);
-  }, [history, historyIndex]);
-
-  const handleUndo = () => {
-    if (historyIndex > 0) setHistoryIndex(historyIndex - 1);
-  };
-  const handleRedo = () => {
-    if (historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1);
-  };
+  }, [handleUndo, handleRedo]);
 
   const toggleTree = useCallback((id) => {
     setExpandedTreeNodes(prev => {
@@ -422,101 +447,116 @@ export default function App() {
   };
 
   const updateKepanNode = useCallback((id, field, value) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const targetNode = findNodeInKepanTree(clonedTree, id);
-    if (targetNode && targetNode[field] !== value) {
-      targetNode[field] = value;
-      commitChange(clonedTree);
-    }
-  }, [kepanTree, commitChange]);
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const targetNode = findNodeInKepanTree(clonedTree, id);
+      if (targetNode && targetNode[field] !== value) {
+        targetNode[field] = value;
+        return clonedTree;
+      }
+      return currentTree;
+    });
+  }, [commitChange]);
 
   const addSiblingKepanNode = useCallback((targetId) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const newNode = { id: generateUniqueId(), title: '', content: '', note: '', children: [] };
-    const insertRecursive = (nodes) => {
-      const index = nodes.findIndex(n => n.id === targetId);
-      if (index !== -1) {
-        nodes.splice(index + 1, 0, newNode);
-        return true;
-      }
-      for (let node of nodes) {
-        if (node.children && insertRecursive(node.children)) return true;
-      }
-      return false;
-    };
-    if (insertRecursive(clonedTree)) {
-      commitChange(clonedTree);
-      setTimeout(() => document.getElementById(`input-${newNode.id}`)?.focus(), 50);
-    }
-  }, [kepanTree, commitChange]);
-
-  const indentKepanNode = useCallback((targetId) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const processIndent = (nodes) => {
-      const index = nodes.findIndex(n => n.id === targetId);
-      if (index > 0) {
-        const nodeToMove = nodes.splice(index, 1)[0];
-        const prevSibling = nodes[index - 1];
-        if (!prevSibling.children) prevSibling.children = [];
-        prevSibling.children.push(nodeToMove);
-        setExpandedTreeNodes(prev => new Set(prev).add(prevSibling.id));
-        return true;
-      }
-      for (let node of nodes) {
-        if (node.children && processIndent(node.children)) return true;
-      }
-      return false;
-    };
-    if (processIndent(clonedTree)) {
-      commitChange(clonedTree);
-      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
-    }
-  }, [kepanTree, commitChange]);
-
-  const outdentKepanNode = useCallback((targetId) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const processOutdent = (nodes, parentArr = null, parentIndex = -1) => {
-      const index = nodes.findIndex(n => n.id === targetId);
-      if (index !== -1 && parentArr) {
-        const nodeToMove = nodes.splice(index, 1)[0];
-        parentArr.splice(parentIndex + 1, 0, nodeToMove);
-        return true;
-      }
-      for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i].children && processOutdent(nodes[i].children, nodes, i)) return true;
-      }
-      return false;
-    };
-    if (processOutdent(clonedTree)) {
-      commitChange(clonedTree);
-      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
-    }
-  }, [kepanTree, commitChange]);
-
-  const moveNode = useCallback((targetId, direction) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const processMove = (nodes) => {
-      const index = nodes.findIndex(n => n.id === targetId);
-      if (index !== -1) {
-        if (direction === 'up' && index > 0) {
-          [nodes[index - 1], nodes[index]] = [nodes[index], nodes[index - 1]];
-          return true;
-        } else if (direction === 'down' && index < nodes.length - 1) {
-          [nodes[index], nodes[index + 1]] = [nodes[index + 1], nodes[index]];
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const newNode = { id: generateUniqueId(), title: '', content: '', note: '', children: [] };
+      const insertRecursive = (nodes) => {
+        const index = nodes.findIndex(n => n.id === targetId);
+        if (index !== -1) {
+          nodes.splice(index + 1, 0, newNode);
           return true;
         }
+        for (let node of nodes) {
+          if (node.children && insertRecursive(node.children)) return true;
+        }
         return false;
+      };
+      if (insertRecursive(clonedTree)) {
+        setTimeout(() => document.getElementById(`input-${newNode.id}`)?.focus(), 50);
+        return clonedTree;
       }
-      for (let node of nodes) {
-        if (node.children && processMove(node.children)) return true;
+      return currentTree;
+    });
+  }, [commitChange]);
+
+  const indentKepanNode = useCallback((targetId) => {
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const processIndent = (nodes) => {
+        const index = nodes.findIndex(n => n.id === targetId);
+        if (index > 0) {
+          const nodeToMove = nodes.splice(index, 1)[0];
+          const prevSibling = nodes[index - 1];
+          if (!prevSibling.children) prevSibling.children = [];
+          prevSibling.children.push(nodeToMove);
+          setExpandedTreeNodes(prev => new Set(prev).add(prevSibling.id));
+          return true;
+        }
+        for (let node of nodes) {
+          if (node.children && processIndent(node.children)) return true;
+        }
+        return false;
+      };
+      if (processIndent(clonedTree)) {
+        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        return clonedTree;
       }
-      return false;
-    };
-    if (processMove(clonedTree)) {
-      commitChange(clonedTree);
-      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
-    }
-  }, [kepanTree, commitChange]);
+      return currentTree;
+    });
+  }, [commitChange]);
+
+  const outdentKepanNode = useCallback((targetId) => {
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const processOutdent = (nodes, parentArr = null, parentIndex = -1) => {
+        const index = nodes.findIndex(n => n.id === targetId);
+        if (index !== -1 && parentArr) {
+          const nodeToMove = nodes.splice(index, 1)[0];
+          parentArr.splice(parentIndex + 1, 0, nodeToMove);
+          return true;
+        }
+        for (let i = 0; i < nodes.length; i++) {
+          if (nodes[i].children && processOutdent(nodes[i].children, nodes, i)) return true;
+        }
+        return false;
+      };
+      if (processOutdent(clonedTree)) {
+        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        return clonedTree;
+      }
+      return currentTree;
+    });
+  }, [commitChange]);
+
+  const moveNode = useCallback((targetId, direction) => {
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const processMove = (nodes) => {
+        const index = nodes.findIndex(n => n.id === targetId);
+        if (index !== -1) {
+          if (direction === 'up' && index > 0) {
+            [nodes[index - 1], nodes[index]] = [nodes[index], nodes[index - 1]];
+            return true;
+          } else if (direction === 'down' && index < nodes.length - 1) {
+            [nodes[index], nodes[index + 1]] = [nodes[index + 1], nodes[index]];
+            return true;
+          }
+          return false;
+        }
+        for (let node of nodes) {
+          if (node.children && processMove(node.children)) return true;
+        }
+        return false;
+      };
+      if (processMove(clonedTree)) {
+        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        return clonedTree;
+      }
+      return currentTree;
+    });
+  }, [commitChange]);
 
   const splitTextToChildKepanNode = useCallback((nodeId, textareaRef) => {
     if (!textareaRef.current) return;
@@ -527,89 +567,91 @@ export default function App() {
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
 
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const targetNode = findNodeInKepanTree(clonedTree, nodeId);
-    if (targetNode) {
-      targetNode.content = textBefore;
-      const newNode = {
-        id: generateUniqueId(), title: '新子科判', content: textAfter, note: '', children: []
-      };
-      if (!targetNode.children) targetNode.children = [];
-      targetNode.children.unshift(newNode);
-      setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-      commitChange(clonedTree);
-    }
-  }, [kepanTree, commitChange]);
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const targetNode = findNodeInKepanTree(clonedTree, nodeId);
+      if (targetNode) {
+        targetNode.content = textBefore;
+        const newNode = { id: generateUniqueId(), title: '新子科判', content: textAfter, note: '', children: [] };
+        if (!targetNode.children) targetNode.children = [];
+        targetNode.children.unshift(newNode);
+        setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+        return clonedTree;
+      }
+      return currentTree;
+    });
+  }, [commitChange]);
 
   const deleteKepanNode = useCallback((id) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    const removeRecursive = (nodes) => {
-      const index = nodes.findIndex(n => n.id === id);
-      if (index !== -1) {
-        nodes.splice(index, 1);
-        return true;
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const removeRecursive = (nodes) => {
+        const index = nodes.findIndex(n => n.id === id);
+        if (index !== -1) {
+          nodes.splice(index, 1);
+          return true;
+        }
+        for (let node of nodes) {
+          if (node.children && removeRecursive(node.children)) return true;
+        }
+        return false;
+      };
+      if (removeRecursive(clonedTree)) {
+        if (focusId === id) setFocusId(null);
+        setDeleteMenuId(null);
+        return clonedTree;
       }
-      for (let node of nodes) {
-        if (node.children && removeRecursive(node.children)) return true;
-      }
-      return false;
-    };
-    if (removeRecursive(clonedTree)) {
-      if (focusId === id) setFocusId(null);
-      setDeleteMenuId(null);
-      commitChange(clonedTree);
-    }
-  }, [kepanTree, commitChange, focusId]);
+      return currentTree;
+    });
+  }, [commitChange, focusId]);
 
-  // 修復向上合併邏輯：處理 index === 0 (無 previous sibling) 的狀況
   const mergeUpKepanNode = useCallback((id) => {
-    const clonedTree = deepCloneKepanTree(kepanTree);
-    let targetNode = null;
-    let prevSiblingNode = null;
-    let targetParentNode = null;
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      let targetNode = null;
+      let prevSiblingNode = null;
+      let targetParentNode = null;
 
-    const findAndMerge = (nodes, parentNode = null) => {
-      const index = nodes.findIndex(n => n.id === id);
-      if (index !== -1) {
-        targetNode = nodes.splice(index, 1)[0];
-        if (index > 0) {
-          prevSiblingNode = nodes[index - 1]; // 合併至哥哥
+      const findAndMerge = (nodes, parentNode = null) => {
+        const index = nodes.findIndex(n => n.id === id);
+        if (index !== -1) {
+          targetNode = nodes.splice(index, 1)[0];
+          if (index > 0) {
+            prevSiblingNode = nodes[index - 1]; 
+          } else {
+            targetParentNode = parentNode; 
+          }
+          return true;
+        }
+        for (let node of nodes) {
+          if (node.children && findAndMerge(node.children, node)) return true;
+        }
+        return false;
+      };
+
+      if (findAndMerge(clonedTree)) {
+        const mergeTarget = prevSiblingNode || targetParentNode;
+        if (mergeTarget) {
+          const additionalContent = (targetNode.content || '').trim();
+          if (additionalContent) {
+            mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
+          }
+          if (targetNode.note) {
+            mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
+          }
+          if (targetNode.children && targetNode.children.length > 0) {
+            mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
+          }
+          setDeleteMenuId(null);
+          return clonedTree;
         } else {
-          targetParentNode = parentNode; // 沒有哥哥，則合併至父節點
+          showToast("此節點已是最頂層，無法再向上合併。");
+          setDeleteMenuId(null);
         }
-        return true;
       }
-      for (let node of nodes) {
-        if (node.children && findAndMerge(node.children, node)) return true;
-      }
-      return false;
-    };
-
-    if (findAndMerge(clonedTree)) {
-      const mergeTarget = prevSiblingNode || targetParentNode;
-      if (mergeTarget) {
-        // 將被刪除節點的標題化為內文的一部分，以防資料遺失
-        const titleText = targetNode.title ? `【${targetNode.title}】\n` : '';
-        const additionalContent = `${titleText}${targetNode.content || ''}`.trim();
-
-        if (additionalContent) {
-          mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
-        }
-        if (targetNode.note) {
-          mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
-        }
-        if (targetNode.children && targetNode.children.length > 0) {
-          mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
-        }
-        setDeleteMenuId(null);
-        commitChange(clonedTree);
-      } else {
-        // 這是最外層的根節點且 index = 0
-        showToast("此節點已是最頂層，無法再向上合併。");
-        setDeleteMenuId(null);
-      }
-    }
-  }, [kepanTree, commitChange, showToast]);
+      return currentTree;
+    });
+  }, [commitChange, showToast]);
 
   const handleDragStart = useCallback((e, id) => {
     e.stopPropagation(); 
@@ -647,49 +689,51 @@ export default function App() {
 
       if (!draggedNodeId || draggedNodeId === targetId) return;
 
-      const clonedTree = deepCloneKepanTree(kepanTree);
-      let draggedNode = null;
-      
-      const removeDraggedNode = (nodes) => {
-        const index = nodes.findIndex(n => n.id === draggedNodeId);
-        if (index !== -1) {
-          draggedNode = nodes.splice(index, 1)[0];
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && removeDraggedNode(node.children)) return true;
-        }
-        return false;
-      };
-      removeDraggedNode(clonedTree);
-      if (!draggedNode) return;
-
-      const insertAtTarget = (nodes) => {
-        const index = nodes.findIndex(n => n.id === targetId);
-        if (index !== -1) {
-          if (position === 'top') nodes.splice(index, 0, draggedNode);
-          else if (position === 'bottom') nodes.splice(index + 1, 0, draggedNode);
-          else {
-            if (!nodes[index].children) nodes[index].children = [];
-            nodes[index].children.unshift(draggedNode); 
-            setExpandedTreeNodes(prev => new Set(prev).add(targetId));
+      commitChange(currentTree => {
+        const clonedTree = deepCloneKepanTree(currentTree);
+        let draggedNode = null;
+        
+        const removeDraggedNode = (nodes) => {
+          const index = nodes.findIndex(n => n.id === draggedNodeId);
+          if (index !== -1) {
+            draggedNode = nodes.splice(index, 1)[0];
+            return true;
           }
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && insertAtTarget(node.children)) return true;
-        }
-        return false;
-      };
-      
-      if (insertAtTarget(clonedTree)) commitChange(clonedTree);
+          for (let node of nodes) {
+            if (node.children && removeDraggedNode(node.children)) return true;
+          }
+          return false;
+        };
+        removeDraggedNode(clonedTree);
+        if (!draggedNode) return currentTree;
 
+        const insertAtTarget = (nodes) => {
+          const index = nodes.findIndex(n => n.id === targetId);
+          if (index !== -1) {
+            if (position === 'top') nodes.splice(index, 0, draggedNode);
+            else if (position === 'bottom') nodes.splice(index + 1, 0, draggedNode);
+            else {
+              if (!nodes[index].children) nodes[index].children = [];
+              nodes[index].children.unshift(draggedNode); 
+              setExpandedTreeNodes(prev => new Set(prev).add(targetId));
+            }
+            return true;
+          }
+          for (let node of nodes) {
+            if (node.children && insertAtTarget(node.children)) return true;
+          }
+          return false;
+        };
+        
+        if (insertAtTarget(clonedTree)) return clonedTree;
+        return currentTree;
+      });
     } catch (error) {
       setDragInfo({ draggedId: null, overId: null, position: null });
     }
-  }, [kepanTree, dragInfo, commitChange]);
+  }, [dragInfo, commitChange]);
 
-  // --- AI 輔助生成 (已加入多模型 fallback 與 Toast 提示) ---
+  // --- AI 輔助生成 (已修復覆蓋子節點的陣列寫入邏輯) ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
@@ -699,35 +743,24 @@ export default function App() {
     const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
     const actualKey = userApiKey || envApiKey;
     
-    // 如果使用者有輸入 Key，我們輪詢最新的高階模型。若沒有輸入，則使用預覽環境限定的模型
     const modelsToTry = userApiKey 
       ? ['gemini-3.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'] 
-      : ['gemini-3.0-flash'];
-      
-    const prompt = `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。
-    必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):
-    [ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]
-    
-    注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字或 Markdown 標記。
-    原文內容：\n${targetNode.content}`;
+      : ['gemini-2.5-flash-preview-09-2025'];
 
     const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      systemInstruction: { parts: [{ text: "你是一個專業的佛學科判編輯助理。請將提供的文本進行精確的意群切割，並返回嚴格的 JSON 陣列結構。不要包含 ```json 以外的額外文字。" }] },
-      generationConfig: {
-        responseMimeType: "application/json"
-      }
+      contents: [{ parts: [{ text: `原文內容：\n${targetNode.content}` }] }],
+      systemInstruction: { parts: [{ text: aiPrompt }] },
+      generationConfig: { responseMimeType: "application/json" }
     };
 
     let lastErrorMsg = "";
     let success = false;
 
-    // 依序嘗試模型
     for (const modelName of modelsToTry) {
       if (success) break;
       
       let attempt = 0;
-      const maxAttempts = 2; // 每個模型嘗試兩次
+      const maxAttempts = 2; 
       const delays = [1000, 2000];
 
       while (attempt < maxAttempts) {
@@ -750,22 +783,30 @@ export default function App() {
             textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
             const generatedNodes = JSON.parse(textResult);
             
-            const clonedTree = deepCloneKepanTree(kepanTree);
-            const tNode = findNodeInKepanTree(clonedTree, nodeId);
-            if (tNode) {
-              tNode.content = ""; 
-              tNode.children = generatedNodes.map(n => ({
-                id: generateUniqueId(),
-                title: n.title || "新科判",
-                content: n.content || "",
-                note: n.note || "",
-                children: []
-              }));
-              commitChange(clonedTree);
-              setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-            }
+            commitChange(currentTree => {
+              const clonedTree = deepCloneKepanTree(currentTree);
+              const tNode = findNodeInKepanTree(clonedTree, nodeId);
+              if (tNode) {
+                // 將該節點內文清空
+                tNode.content = ""; 
+                // 將 AI 生成的新科判「安插」在原有的子節點陣列最上方，而非直接覆蓋！
+                const newAiNodes = generatedNodes.map(n => ({
+                  id: generateUniqueId(),
+                  title: n.title || "新科判",
+                  content: n.content || "",
+                  note: n.note || "",
+                  children: []
+                }));
+                tNode.children = [...newAiNodes, ...(tNode.children || [])];
+                
+                setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+                return clonedTree;
+              }
+              return currentTree;
+            });
+            
             success = true;
-            break; // 成功跳出當前模型的嘗試迴圈
+            break; 
           } else {
             throw new Error(`${modelName} 回傳結果為空`);
           }
@@ -794,11 +835,12 @@ export default function App() {
 
   const handleExportToFile = () => {
     try {
+      const rootTitle = kepanTree[0]?.title || '科判資料';
       const fileBlob = new Blob([JSON.stringify(kepanTree, null, 2)], { type: 'application/json' });
       const downloadUrl = URL.createObjectURL(fileBlob);
       const linkElement = document.createElement('a');
       linkElement.href = downloadUrl;
-      linkElement.download = '科判資料.json';
+      linkElement.download = `${rootTitle}.json`;
       linkElement.click();
       URL.revokeObjectURL(downloadUrl);
     } catch (error) {
@@ -824,6 +866,13 @@ export default function App() {
     } catch (error) {
       showToast("讀取檔案發生錯誤。");
     }
+  };
+
+  const saveSettings = () => {
+    localStorage.setItem('outline_api_key', userApiKey);
+    localStorage.setItem('outline_ai_prompt', aiPrompt);
+    setShowSettings(false);
+    showToast("設定已儲存");
   };
 
   const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : kepanTree;
@@ -890,7 +939,6 @@ export default function App() {
           </h1>
           
           <div className={`flex rounded-lg p-1 border gap-1 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-stone-100 border-stone-200'}`}>
-            {/* 確保按鈕順序: 原文 -> 科判 -> 對讀 -> 鳥瞰 */}
             <button onClick={() => setMode('text')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'text' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="原文模式">
               <BookText size={16} /> <span className="hidden sm:inline">原文模式</span>
             </button>
@@ -907,15 +955,13 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Undo / Redo */}
           <div className="flex items-center gap-1 mr-2">
-            <button onClick={handleUndo} disabled={historyIndex === 0} className={`p-1.5 rounded-md transition-colors ${historyIndex === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="復原 (Ctrl+Z)"><Undo2 size={18}/></button>
-            <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className={`p-1.5 rounded-md transition-colors ${historyIndex === history.length - 1 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="重做 (Ctrl+Y)"><Redo2 size={18}/></button>
+            <button onClick={handleUndo} disabled={historyState.past.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.past.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="復原 (Ctrl+Z)"><Undo2 size={18}/></button>
+            <button onClick={handleRedo} disabled={historyState.future.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.future.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="重做 (Ctrl+Y)"><Redo2 size={18}/></button>
           </div>
 
           <div className={`w-px h-4 mx-1 ${isDark ? 'bg-stone-700' : 'bg-stone-300'}`}></div>
 
-          {/* 主題切換 */}
           <button onClick={() => setTheme(theme === 'default' ? 'beige' : theme === 'beige' ? 'dark' : theme === 'dark' ? 'bamboo' : 'default')} className={`p-1.5 rounded-full hover:bg-stone-500/20 transition-colors ${isDark ? 'text-yellow-400' : 'text-stone-500'}`} title="切換禪風主題">
             {theme === 'dark' ? <Moon size={18}/> : theme === 'bamboo' ? <Leaf size={18}/> : <Sun size={18}/>}
           </button>
@@ -935,23 +981,47 @@ export default function App() {
       {/* 設定面板 Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-md rounded-xl p-6 shadow-2xl ${isDark ? 'bg-stone-900 text-stone-200' : 'bg-white text-stone-800'}`}>
+          <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${isDark ? 'bg-stone-900 text-stone-200' : 'bg-white text-stone-800'}`}>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Wand2 size={20} className="text-purple-500"/> AI 輔助設定</h2>
+              <h2 className="text-xl font-bold flex items-center gap-2"><Settings size={20} className="text-stone-500"/> 偏好與 AI 設定</h2>
               <button onClick={() => setShowSettings(false)} className="hover:bg-stone-500/20 p-1 rounded-full"><X size={20}/></button>
             </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Google Gemini API Key</label>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-bold mb-2 text-teal-600"><Wand2 size={16} className="inline mr-1"/> Google Gemini API Key</label>
               <input 
                 type="password" 
                 value={userApiKey} 
                 onChange={(e) => setUserApiKey(e.target.value)}
-                placeholder="貼上您的 API 金鑰 (非必填)"
-                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-purple-500 ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'}`}
+                placeholder="貼上您的 API 金鑰"
+                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'}`}
               />
-              <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>若留空，系統在支援的預覽環境中將自動採用內建金鑰。內建重試機制可自動切換可用資源。</p>
+              <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>若留空，系統將自動採用內建金鑰進行嘗試。</p>
             </div>
-            <button onClick={() => { setShowSettings(false); showToast("設定已儲存"); }} className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium transition-colors">確認並儲存</button>
+
+            <div className="mb-6">
+              <label className="block text-sm font-bold mb-2 text-teal-600"><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
+              <select 
+                className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200 text-stone-800'}`}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                value={AI_PROMPT_PRESETS.find(p => p.value === aiPrompt) ? aiPrompt : "custom"}
+              >
+                {AI_PROMPT_PRESETS.map((preset, idx) => (
+                  <option key={idx} value={preset.value}>{preset.label}</option>
+                ))}
+                <option value="custom">✍️ 自訂提示詞...</option>
+              </select>
+              <textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={6}
+                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm font-mono ${isDark ? 'bg-stone-800 border-stone-700 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-600'}`}
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <button onClick={saveSettings} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded font-medium transition-colors">確認並儲存</button>
+            </div>
           </div>
         </div>
       )}
