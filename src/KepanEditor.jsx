@@ -1,11 +1,11 @@
-// Version: 1.4.1 - 修復 AI 生成結果覆蓋現有子節點的問題，保留已拆分的段落
+// Version: 1.4.2 - 壓縮原文模式間距、新增開新檔案功能、優化 API Key 判定與提示
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
   Trash2, Save, FolderOpen, Target, Home, 
   SplitSquareHorizontal, GripVertical, AlignLeft,
   Undo2, Redo2, Columns, Map, BookOpen, Wand2, Settings,
-  X, Sun, Moon, Leaf, BookText
+  X, Sun, Moon, Leaf, BookText, FilePlus
 } from 'lucide-react';
 
 // --- 工具函數 ---
@@ -70,10 +70,10 @@ const THEMES = {
 
 // --- 獨立的 TreeNode 元件 ---
 const TreeNode = React.memo(({ 
-  kepanNode, depth, mode, theme,
+  kepanNode, depth, mode, theme, userApiKey,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId,
-  actions 
+  actions, showToast 
 }) => {
   const textareaRef = useRef(null);
   const noteAreaRef = useRef(null);
@@ -135,6 +135,15 @@ const TreeNode = React.memo(({
     }
   };
 
+  const handleAIAssistClick = (e) => {
+    e.stopPropagation();
+    if (!userApiKey) {
+      showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
+      return;
+    }
+    actions.generateAISkeleton(kepanNode.id);
+  };
+
   const isDragged = dragInfo.draggedId === kepanNode.id;
   const isDragOver = dragInfo.overId === kepanNode.id;
   let dropZoneClass = 'border border-transparent';
@@ -155,7 +164,7 @@ const TreeNode = React.memo(({
 
   return (
     <div className={`
-      ${mode === 'text' ? 'mb-0' : 'mb-2'} 
+      ${mode === 'text' ? 'mb-0 mt-0' : 'mb-2'} 
       ${(mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0'}
       ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'}
       transition-all duration-200
@@ -163,7 +172,7 @@ const TreeNode = React.memo(({
       <div 
         onDragOver={(e) => actions.handleDragOver(e, kepanNode.id)}
         onDrop={(e) => actions.handleDrop(e, kepanNode.id)}
-        className={`group relative flex items-start gap-1 p-1 -ml-1 transition-colors ${dropZoneClass}`}
+        className={`group relative flex items-start gap-1 ${mode === 'text' ? 'p-0 -ml-0' : 'p-1 -ml-1'} transition-colors ${dropZoneClass}`}
         onClick={handleNodeClick}
       >
         
@@ -201,7 +210,7 @@ const TreeNode = React.memo(({
               className={`
                 font-bold bg-transparent border-b border-transparent focus:border-teal-500 focus:outline-none transition-all flex-1 min-w-[150px]
                 ${colorClass} 
-                ${mode === 'text' ? `${textSizeClass} mt-3 mb-0 pb-0` : 'text-lg mb-1 pb-1'}
+                ${mode === 'text' ? `${textSizeClass} mb-0 pb-0 mt-2` : 'text-lg mb-1 pb-1'}
               `}
             />
             
@@ -228,7 +237,7 @@ const TreeNode = React.memo(({
 
               {hasContent && mode !== 'split' && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }}
+                  onClick={handleAIAssistClick}
                   disabled={isAILoadingId === kepanNode.id}
                   className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-400 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`}
                   title="AI 輔助骨架生成"
@@ -264,7 +273,7 @@ const TreeNode = React.memo(({
           )}
 
           {isContentVisible && mode !== 'split' && (
-            <div className="relative group/text mb-1 mt-1">
+            <div className={`relative group/text ${mode === 'text' ? 'mb-0 mt-0' : 'mb-1 mt-1'}`}>
               <textarea
                 ref={textareaRef}
                 value={kepanNode.content}
@@ -315,9 +324,9 @@ const TreeNode = React.memo(({
         <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
-              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} theme={theme}
+              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} theme={theme} userApiKey={userApiKey}
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} 
+              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
             />
           ))}
         </div>
@@ -733,19 +742,21 @@ export default function App() {
     }
   }, [dragInfo, commitChange]);
 
-  // --- AI 輔助生成 (已修復覆蓋子節點的陣列寫入邏輯) ---
+  // --- AI 輔助生成 ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
+    // 強制驗證 API Key，無 Key 則阻擋執行並提示
+    if (!userApiKey || userApiKey.trim() === '') {
+      showToast("請先至右上角「設定」輸入您的 Google Gemini API 金鑰。");
+      return;
+    }
+    
     setIsAILoadingId(nodeId);
     
-    const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
-    const actualKey = userApiKey || envApiKey;
-    
-    const modelsToTry = userApiKey 
-      ? ['gemini-3.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'] 
-      : ['gemini-2.5-flash'];
+    // 調整輪詢陣列，以 2.5-flash 作為首選主力，避免 429 錯誤
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-3.0-flash', 'gemini-flash-latest'];
 
     const payload = {
       contents: [{ parts: [{ text: `原文內容：\n${targetNode.content}` }] }],
@@ -761,11 +772,11 @@ export default function App() {
       
       let attempt = 0;
       const maxAttempts = 2; 
-      const delays = [1000, 2000];
+      const delays = [1500, 3000];
 
       while (attempt < maxAttempts) {
         try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${actualKey}`, {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${userApiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -787,9 +798,7 @@ export default function App() {
               const clonedTree = deepCloneKepanTree(currentTree);
               const tNode = findNodeInKepanTree(clonedTree, nodeId);
               if (tNode) {
-                // 將該節點內文清空
                 tNode.content = ""; 
-                // 將 AI 生成的新科判「安插」在原有的子節點陣列最上方，而非直接覆蓋！
                 const newAiNodes = generatedNodes.map(n => ({
                   id: generateUniqueId(),
                   title: n.title || "新科判",
@@ -821,7 +830,7 @@ export default function App() {
     }
     
     if (!success) {
-      showToast(`AI 生成失敗。原因: ${lastErrorMsg.substring(0, 100)}... 請確認 API 金鑰有效性。`, 7000);
+      showToast(`AI 生成失敗。原因: ${lastErrorMsg.substring(0, 100)}... 請確認 API 金鑰配額與有效性。`, 7000);
     }
     setIsAILoadingId(null);
   };
@@ -831,6 +840,15 @@ export default function App() {
     deleteKepanNode, mergeUpKepanNode, splitTextToChildKepanNode, setFocusId,
     setDeleteMenuId, toggleTree, toggleContent, toggleNote, generateAISkeleton,
     handleDragStart, handleDragOver, handleDrop
+  };
+
+  // --- 檔案功能 ---
+  const handleNewFile = () => {
+    if (window.confirm("確定要開啟新檔案嗎？未存檔的變更將會遺失。")) {
+      commitChange(INITIAL_EMPTY_KEPAN_TREE);
+      setFocusId(null);
+      showToast("已建立新科判檔案。");
+    }
   };
 
   const handleExportToFile = () => {
@@ -857,6 +875,7 @@ export default function App() {
         try {
           const parsedData = JSON.parse(event.target.result);
           commitChange(parsedData);
+          setFocusId(null);
           showToast("檔案匯入成功！");
         } catch (err) {
           showToast("檔案格式不正確，請匯入有效的 JSON 檔案。");
@@ -866,6 +885,7 @@ export default function App() {
     } catch (error) {
       showToast("讀取檔案發生錯誤。");
     }
+    e.target.value = ''; // Reset input to allow re-importing same file
   };
 
   const saveSettings = () => {
@@ -954,8 +974,8 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 mr-2">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1">
             <button onClick={handleUndo} disabled={historyState.past.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.past.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="復原 (Ctrl+Z)"><Undo2 size={18}/></button>
             <button onClick={handleRedo} disabled={historyState.future.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.future.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="重做 (Ctrl+Y)"><Redo2 size={18}/></button>
           </div>
@@ -968,12 +988,19 @@ export default function App() {
           
           <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-full hover:bg-stone-500/20 text-stone-500 transition-colors" title="設定"><Settings size={18}/></button>
 
-          <label className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`}>
-            <FolderOpen size={16} /> 開啟
+          <div className={`w-px h-4 mx-1 ${isDark ? 'bg-stone-700' : 'bg-stone-300'}`}></div>
+
+          {/* 新增：開新檔案 */}
+          <button onClick={handleNewFile} className={`p-1.5 rounded-full transition-colors ${isDark ? 'hover:bg-stone-700 text-stone-300' : 'hover:bg-stone-200 text-stone-600'}`} title="開新檔案">
+            <FilePlus size={18} />
+          </button>
+
+          <label className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`} title="匯入本地 JSON">
+            <FolderOpen size={16} /> <span className="hidden sm:inline">開啟</span>
             <input type="file" accept=".json" onChange={handleImportFromFile} className="hidden" />
           </label>
-          <button onClick={handleExportToFile} className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white bg-teal-600 rounded shadow-sm hover:bg-teal-700 transition-colors">
-            <Save size={16} /> 存檔
+          <button onClick={handleExportToFile} className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white bg-teal-600 rounded shadow-sm hover:bg-teal-700 transition-colors" title="匯出為 JSON">
+            <Save size={16} /> <span className="hidden sm:inline">存檔</span>
           </button>
         </div>
       </header>
@@ -993,10 +1020,10 @@ export default function App() {
                 type="password" 
                 value={userApiKey} 
                 onChange={(e) => setUserApiKey(e.target.value)}
-                placeholder="貼上您的 API 金鑰"
+                placeholder="貼上您的 API 金鑰 (必填才能使用 AI 功能)"
                 className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'}`}
               />
-              <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>若留空，系統將自動採用內建金鑰進行嘗試。</p>
+              <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>系統不提供預設金鑰，請確保輸入有效金鑰以啟用魔法棒拆分功能。</p>
             </div>
 
             <div className="mb-6">
@@ -1056,9 +1083,9 @@ export default function App() {
              <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
                 {currentRenderData.map(rootNode => (
                   <TreeNode 
-                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme}
+                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme} userApiKey={userApiKey}
                     expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-                    deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} 
+                    deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
                   />
                 ))}
              </div>
@@ -1071,9 +1098,9 @@ export default function App() {
           <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
             {currentRenderData.map(rootNode => (
               <TreeNode 
-                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme}
+                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme} userApiKey={userApiKey}
                 expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-                deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} 
+                deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
               />
             ))}
           </div>
