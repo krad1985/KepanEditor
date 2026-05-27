@@ -702,7 +702,7 @@ export default function App() {
     // 如果使用者有輸入 Key，我們輪詢最新的高階模型。若沒有輸入，則使用預覽環境限定的模型
     const modelsToTry = userApiKey 
       ? ['gemini-3.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'] 
-      : ['gemini-2.5-flash-preview-09-2025'];
+      : ['gemini-3.0-flash'];
       
     const prompt = `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。
     必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):
