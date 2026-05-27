@@ -745,7 +745,7 @@ export default function App() {
     
     const modelsToTry = userApiKey 
       ? ['gemini-3.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'] 
-      : ['gemini-2.5-flash-preview-09-2025'];
+      : ['gemini-2.5-flash'];
 
     const payload = {
       contents: [{ parts: [{ text: `原文內容：\n${targetNode.content}` }] }],
