@@ -1,4 +1,4 @@
-// Version: 1.3.1 - 修正模式預設順序、優化 AI 解析穩定度與錯誤提示、修復修行筆記區塊顯示問題
+// Version: 1.3.2 - 實作 AI 模型輪詢 fallback 機制、修復向上合併邏輯、移除原生 alert 改用 Toast UI
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -47,9 +47,9 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
 // --- 主題設定 ---
 const THEMES = {
   default: "bg-stone-50 text-stone-800",
-  beige: "bg-[#fdfbf7] text-[#5c4b3a]",  // 貝葉經黃
-  dark: "bg-[#1a1a1a] text-[#e0e0e0]",  // 檀木沉黑
-  bamboo: "bg-[#f0f4f0] text-[#2c3e2e]" // 禪意竹綠
+  beige: "bg-[#fdfbf7] text-[#5c4b3a]",
+  dark: "bg-[#1a1a1a] text-[#e0e0e0]",
+  bamboo: "bg-[#f0f4f0] text-[#2c3e2e]"
 };
 
 // --- 獨立的 TreeNode 元件 ---
@@ -70,7 +70,6 @@ const TreeNode = React.memo(({
   const hasContent = kepanNode.content && kepanNode.content.trim().length > 0;
   const hasNote = kepanNode.note && kepanNode.note.trim().length > 0;
 
-  // 樣式運算 (配合深色主題調整)
   const isDark = theme === 'dark';
   const depthColors = isDark 
     ? ['text-blue-300 border-blue-300', 'text-teal-300 border-teal-300', 'text-emerald-300 border-emerald-300', 'text-cyan-300 border-cyan-300', 'text-indigo-300 border-indigo-300']
@@ -79,7 +78,6 @@ const TreeNode = React.memo(({
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
 
-  // 自動調整高度
   const autoResizeTextarea = (e, field) => {
     try {
       e.target.style.height = 'auto';
@@ -104,7 +102,6 @@ const TreeNode = React.memo(({
     }
   }, [kepanNode.note, isNoteVisible]);
 
-  // 鍵盤快捷鍵處理 (包含 Ctrl+Up/Down 移動)
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -122,7 +119,6 @@ const TreeNode = React.memo(({
     }
   };
 
-  // 拖曳視覺反饋
   const isDragged = dragInfo.draggedId === kepanNode.id;
   const isDragOver = dragInfo.overId === kepanNode.id;
   let dropZoneClass = 'border border-transparent';
@@ -130,13 +126,11 @@ const TreeNode = React.memo(({
   if (isDragOver && dragInfo.position === 'bottom') dropZoneClass = 'border-b-2 border-b-teal-500 rounded-b';
   if (isDragOver && dragInfo.position === 'inside') dropZoneClass = 'bg-teal-500/10 rounded ring-1 ring-teal-500/50';
 
-  // 針對對讀模式的點擊連動
   const handleNodeClick = () => {
     if (mode === 'split') {
       const element = document.getElementById(`split-content-${kepanNode.id}`);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        // 短暫高亮
         element.classList.add('ring-2', 'ring-teal-400', 'bg-teal-500/10');
         setTimeout(() => element.classList.remove('ring-2', 'ring-teal-400', 'bg-teal-500/10'), 1500);
       }
@@ -157,7 +151,6 @@ const TreeNode = React.memo(({
         onClick={handleNodeClick}
       >
         
-        {/* 拖曳把手 */}
         {(mode === 'outline' || mode === 'split') && (
           <div 
             draggable
@@ -169,7 +162,6 @@ const TreeNode = React.memo(({
           </div>
         )}
 
-        {/* 展開/收合圖示 */}
         {(mode === 'outline' || mode === 'split') && hasChildren ? (
           <button 
             onClick={(e) => { e.stopPropagation(); actions.toggleTree(kepanNode.id); }}
@@ -182,7 +174,6 @@ const TreeNode = React.memo(({
         )}
 
         <div className="flex-1 w-full min-w-0">
-          {/* 標題行 */}
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <input
               id={`input-${kepanNode.id}`}
@@ -198,9 +189,7 @@ const TreeNode = React.memo(({
               `}
             />
             
-            {/* 工具列 (內文切換、筆記切換、AI輔助、聚焦、刪除) */}
             <div className={`flex items-center gap-1 shrink-0 ${mode === 'split' && !hasContent && !hasNote ? 'opacity-0' : ''}`}>
-              {/* 內文切換按鈕 */}
               {mode === 'outline' && hasContent && (
                 <button
                   onClick={(e) => { e.stopPropagation(); actions.toggleContent(kepanNode.id); }}
@@ -211,7 +200,6 @@ const TreeNode = React.memo(({
                 </button>
               )}
               
-              {/* 修行筆記按鈕 */}
               {(mode === 'outline' || mode === 'text' || mode === 'split') && (hasNote || isNoteVisible || hasContent) && (
                 <button
                   onClick={(e) => { e.stopPropagation(); actions.toggleNote(kepanNode.id); }}
@@ -222,7 +210,6 @@ const TreeNode = React.memo(({
                 </button>
               )}
 
-              {/* AI 輔助生成骨架 (需有內文) */}
               {hasContent && mode !== 'split' && (
                 <button
                   onClick={(e) => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }}
@@ -245,7 +232,6 @@ const TreeNode = React.memo(({
             </div>
           </div>
 
-          {/* 原位刪除選單 */}
           {deleteMenuId === kepanNode.id && (
             <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
               <span className={`font-medium ml-1 ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>刪除選項：</span>
@@ -261,7 +247,6 @@ const TreeNode = React.memo(({
             </div>
           )}
 
-          {/* 原文內容區 */}
           {isContentVisible && mode !== 'split' && (
             <div className="relative group/text mb-2">
               <textarea
@@ -280,7 +265,6 @@ const TreeNode = React.memo(({
                 }}
               />
               
-              {/* 拆分按鈕 */}
               {mode === 'text' && kepanNode.content && (
                 <button 
                   onClick={() => actions.splitTextToChildKepanNode(kepanNode.id, textareaRef)}
@@ -293,7 +277,6 @@ const TreeNode = React.memo(({
             </div>
           )}
 
-          {/* 修行觀察札記區 (已修復：不再受 mode !== 'split' 的阻擋) */}
           {isNoteVisible && (
             <div className={`mb-2 p-3 rounded-lg border-l-4 border-amber-400 shadow-sm relative ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
               <div className="flex items-center gap-2 mb-1 text-xs font-bold text-amber-600/70 uppercase tracking-widest">
@@ -312,7 +295,6 @@ const TreeNode = React.memo(({
         </div>
       </div>
 
-      {/* 遞迴渲染子節點 */}
       {hasChildren && (mode === 'text' || mode === 'split' || isTreeExpanded) && (
         <div className="mt-1">
           {kepanNode.children.map(childNode => (
@@ -330,7 +312,6 @@ const TreeNode = React.memo(({
 
 // --- 主應用程式 ---
 export default function App() {
-  // 核心資料狀態 (含 Undo/Redo)
   const [history, setHistory] = useState(() => {
     try {
       const savedTree = localStorage.getItem('outline_editor_autosave_v3');
@@ -342,7 +323,7 @@ export default function App() {
   const [historyIndex, setHistoryIndex] = useState(0);
   const kepanTree = history[historyIndex];
 
-  // 視圖與UI狀態 - 預設改為 'text' (原文模式)
+  // 預設切換為原文模式
   const [mode, setMode] = useState('text'); 
   const [theme, setTheme] = useState('default');
   const [focusId, setFocusId] = useState(null); 
@@ -352,21 +333,24 @@ export default function App() {
   const [deleteMenuId, setDeleteMenuId] = useState(null);
   const [dragInfo, setDragInfo] = useState({ draggedId: null, overId: null, position: null });
   
-  // 設定與 AI 狀態
   const [showSettings, setShowSettings] = useState(false);
   const [userApiKey, setUserApiKey] = useState('');
   const [isAILoadingId, setIsAILoadingId] = useState(null);
+  
+  // Custom Toast Message State
+  const [toastMessage, setToastMessage] = useState(null);
 
-  // 本地端自動存檔
+  const showToast = useCallback((msg, duration = 5000) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), duration);
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('outline_editor_autosave_v3', JSON.stringify(kepanTree));
-    } catch (error) {
-      console.error("Local Storage 儲存失敗:", error);
-    }
+    } catch (error) {}
   }, [kepanTree]);
 
-  // 快捷鍵: 復原與重做
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -382,11 +366,10 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   });
 
-  // --- 歷史紀錄管理 (Undo/Redo) ---
   const commitChange = useCallback((newTree) => {
     const nextHistory = history.slice(0, historyIndex + 1);
     nextHistory.push(newTree);
-    if (nextHistory.length > 50) nextHistory.shift(); // 保留最近50步
+    if (nextHistory.length > 50) nextHistory.shift(); 
     setHistory(nextHistory);
     setHistoryIndex(nextHistory.length - 1);
   }, [history, historyIndex]);
@@ -398,7 +381,6 @@ export default function App() {
     if (historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1);
   };
 
-  // --- 狀態切換 Actions ---
   const toggleTree = useCallback((id) => {
     setExpandedTreeNodes(prev => {
       const next = new Set(prev);
@@ -439,7 +421,6 @@ export default function App() {
     setExpandedContentNodes(allContentIds);
   };
 
-  // --- 樹狀資料操作 Actions (寫入 History) ---
   const updateKepanNode = useCallback((id, field, value) => {
     const clonedTree = deepCloneKepanTree(kepanTree);
     const targetNode = findNodeInKepanTree(clonedTree, id);
@@ -580,40 +561,56 @@ export default function App() {
     }
   }, [kepanTree, commitChange, focusId]);
 
+  // 修復向上合併邏輯：處理 index === 0 (無 previous sibling) 的狀況
   const mergeUpKepanNode = useCallback((id) => {
     const clonedTree = deepCloneKepanTree(kepanTree);
     let targetNode = null;
     let prevSiblingNode = null;
+    let targetParentNode = null;
 
-    const findAndMerge = (nodes) => {
+    const findAndMerge = (nodes, parentNode = null) => {
       const index = nodes.findIndex(n => n.id === id);
-      if (index > 0) {
+      if (index !== -1) {
         targetNode = nodes.splice(index, 1)[0];
-        prevSiblingNode = nodes[index - 1];
+        if (index > 0) {
+          prevSiblingNode = nodes[index - 1]; // 合併至哥哥
+        } else {
+          targetParentNode = parentNode; // 沒有哥哥，則合併至父節點
+        }
         return true;
       }
       for (let node of nodes) {
-        if (node.children && findAndMerge(node.children)) return true;
+        if (node.children && findAndMerge(node.children, node)) return true;
       }
       return false;
     };
 
-    if (findAndMerge(clonedTree) && targetNode && prevSiblingNode) {
-      if (targetNode.content) {
-        prevSiblingNode.content = prevSiblingNode.content ? `${prevSiblingNode.content}\n${targetNode.content}` : targetNode.content;
-      }
-      if (targetNode.note) {
-        prevSiblingNode.note = prevSiblingNode.note ? `${prevSiblingNode.note}\n${targetNode.note}` : targetNode.note;
-      }
-      if (targetNode.children && targetNode.children.length > 0) {
-        prevSiblingNode.children = [...(prevSiblingNode.children || []), ...targetNode.children];
-      }
-      setDeleteMenuId(null);
-      commitChange(clonedTree);
-    }
-  }, [kepanTree, commitChange]);
+    if (findAndMerge(clonedTree)) {
+      const mergeTarget = prevSiblingNode || targetParentNode;
+      if (mergeTarget) {
+        // 將被刪除節點的標題化為內文的一部分，以防資料遺失
+        const titleText = targetNode.title ? `【${targetNode.title}】\n` : '';
+        const additionalContent = `${titleText}${targetNode.content || ''}`.trim();
 
-  // --- 拖曳事件處理 ---
+        if (additionalContent) {
+          mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
+        }
+        if (targetNode.note) {
+          mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
+        }
+        if (targetNode.children && targetNode.children.length > 0) {
+          mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
+        }
+        setDeleteMenuId(null);
+        commitChange(clonedTree);
+      } else {
+        // 這是最外層的根節點且 index = 0
+        showToast("此節點已是最頂層，無法再向上合併。");
+        setDeleteMenuId(null);
+      }
+    }
+  }, [kepanTree, commitChange, showToast]);
+
   const handleDragStart = useCallback((e, id) => {
     e.stopPropagation(); 
     try {
@@ -692,14 +689,21 @@ export default function App() {
     }
   }, [kepanTree, dragInfo, commitChange]);
 
-  // --- AI 輔助生成 (已優化容錯處理與錯誤提示) ---
+  // --- AI 輔助生成 (已加入多模型 fallback 與 Toast 提示) ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
     setIsAILoadingId(nodeId);
     
-    const actualKey = userApiKey || ""; 
+    const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
+    const actualKey = userApiKey || envApiKey;
+    
+    // 如果使用者有輸入 Key，我們輪詢最新的高階模型。若沒有輸入，則使用預覽環境限定的模型
+    const modelsToTry = userApiKey 
+      ? ['gemini-3.0-flash', 'gemini-2.5-flash', 'gemini-flash-latest'] 
+      : ['gemini-2.5-flash-preview-09-2025'];
+      
     const prompt = `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。
     必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):
     [ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]
@@ -715,62 +719,69 @@ export default function App() {
       }
     };
 
-    let attempt = 0;
-    const maxAttempts = 3;
-    const delays = [1000, 2000, 4000];
     let lastErrorMsg = "";
+    let success = false;
 
-    while (attempt < maxAttempts) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${actualKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+    // 依序嘗試模型
+    for (const modelName of modelsToTry) {
+      if (success) break;
+      
+      let attempt = 0;
+      const maxAttempts = 2; // 每個模型嘗試兩次
+      const delays = [1000, 2000];
 
-        if (!response.ok) {
-          const errorTxt = await response.text();
-          throw new Error(`HTTP ${response.status} - ${errorTxt}`);
-        }
-        
-        const result = await response.json();
-        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (textResult) {
-          // 強制清理可能出現的 Markdown 標記以避免 JSON.parse 失敗
-          textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
-          const generatedNodes = JSON.parse(textResult);
-          
-          const clonedTree = deepCloneKepanTree(kepanTree);
-          const tNode = findNodeInKepanTree(clonedTree, nodeId);
-          if (tNode) {
-            tNode.content = ""; 
-            tNode.children = generatedNodes.map(n => ({
-              id: generateUniqueId(),
-              title: n.title || "新科判",
-              content: n.content || "",
-              note: n.note || "",
-              children: []
-            }));
-            commitChange(clonedTree);
-            setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+      while (attempt < maxAttempts) {
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${actualKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const errorTxt = await response.text();
+            throw new Error(`${modelName} 回報錯誤: ${response.status} - ${errorTxt}`);
           }
-          setIsAILoadingId(null);
-          return; // 成功即結束
-        } else {
-          throw new Error("API 回傳結果為空");
-        }
-      } catch (error) {
-        lastErrorMsg = error.message;
-        attempt++;
-        if (attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
+          
+          const result = await response.json();
+          let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (textResult) {
+            textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const generatedNodes = JSON.parse(textResult);
+            
+            const clonedTree = deepCloneKepanTree(kepanTree);
+            const tNode = findNodeInKepanTree(clonedTree, nodeId);
+            if (tNode) {
+              tNode.content = ""; 
+              tNode.children = generatedNodes.map(n => ({
+                id: generateUniqueId(),
+                title: n.title || "新科判",
+                content: n.content || "",
+                note: n.note || "",
+                children: []
+              }));
+              commitChange(clonedTree);
+              setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+            }
+            success = true;
+            break; // 成功跳出當前模型的嘗試迴圈
+          } else {
+            throw new Error(`${modelName} 回傳結果為空`);
+          }
+        } catch (error) {
+          lastErrorMsg = error.message;
+          attempt++;
+          if (attempt < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, delays[attempt - 1]));
+          }
         }
       }
     }
     
-    // 如果重試皆失敗，顯示具體的錯誤原因讓用戶可以除錯
-    alert(`AI 骨架生成失敗。\n原因: ${lastErrorMsg}\n請確認您的 API 金鑰是否有效，或模型是否目前超載。`);
+    if (!success) {
+      showToast(`AI 生成失敗。原因: ${lastErrorMsg.substring(0, 100)}... 請確認 API 金鑰有效性。`, 7000);
+    }
     setIsAILoadingId(null);
   };
 
@@ -781,7 +792,6 @@ export default function App() {
     handleDragStart, handleDragOver, handleDrop
   };
 
-  // --- 檔案匯出/匯入 ---
   const handleExportToFile = () => {
     try {
       const fileBlob = new Blob([JSON.stringify(kepanTree, null, 2)], { type: 'application/json' });
@@ -791,7 +801,9 @@ export default function App() {
       linkElement.download = '科判資料.json';
       linkElement.click();
       URL.revokeObjectURL(downloadUrl);
-    } catch (error) {}
+    } catch (error) {
+      showToast("檔案匯出失敗，請重試。");
+    }
   };
 
   const handleImportFromFile = (e) => {
@@ -803,20 +815,21 @@ export default function App() {
         try {
           const parsedData = JSON.parse(event.target.result);
           commitChange(parsedData);
+          showToast("檔案匯入成功！");
         } catch (err) {
-          alert("檔案格式不正確，請匯入有效的 JSON 檔案。");
+          showToast("檔案格式不正確，請匯入有效的 JSON 檔案。");
         }
       };
       fileReader.readAsText(selectedFile);
-    } catch (error) {}
+    } catch (error) {
+      showToast("讀取檔案發生錯誤。");
+    }
   };
 
-  // 渲染資料準備
   const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : kepanTree;
   const currentBreadcrumbPath = focusId ? findPathInKepanTree(kepanTree, focusId) : null;
   const isDark = theme === 'dark';
 
-  // 渲染對讀模式的右側連續文本
   const renderContinuousSplitText = (nodes) => {
     return nodes.map(node => (
       <div key={`split-${node.id}`} id={`split-content-${node.id}`} className="mb-6 group transition-colors duration-500 rounded p-2">
@@ -837,7 +850,6 @@ export default function App() {
     ));
   };
 
-  // 渲染鳥瞰圖
   const renderMacroMap = (nodes) => {
     return (
       <div className="flex flex-col gap-2">
@@ -861,6 +873,14 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${THEMES[theme]}`}>
       
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded shadow-lg z-50 flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in ${isDark ? 'bg-stone-200 text-stone-900' : 'bg-stone-800 text-white'}`}>
+          <span className="text-sm font-medium">{toastMessage}</span>
+          <button onClick={() => setToastMessage(null)} className="opacity-70 hover:opacity-100"><X size={16}/></button>
+        </div>
+      )}
+
       {/* Header 工具列 */}
       <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}`}>
         <div className="flex items-center gap-4">
@@ -870,6 +890,7 @@ export default function App() {
           </h1>
           
           <div className={`flex rounded-lg p-1 border gap-1 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-stone-100 border-stone-200'}`}>
+            {/* 確保按鈕順序: 原文 -> 科判 -> 對讀 -> 鳥瞰 */}
             <button onClick={() => setMode('text')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'text' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="原文模式">
               <BookText size={16} /> <span className="hidden sm:inline">原文模式</span>
             </button>
@@ -930,7 +951,7 @@ export default function App() {
               />
               <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>若留空，系統在支援的預覽環境中將自動採用內建金鑰。內建重試機制可自動切換可用資源。</p>
             </div>
-            <button onClick={() => setShowSettings(false)} className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium transition-colors">確認並儲存</button>
+            <button onClick={() => { setShowSettings(false); showToast("設定已儲存"); }} className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-medium transition-colors">確認並儲存</button>
           </div>
         </div>
       )}
