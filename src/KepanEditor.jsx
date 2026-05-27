@@ -1,4 +1,4 @@
-// Version: 1.2.0 - 移除預設內容為空白模板，重構命名符合 Clean Code 規範
+// Version: 1.2.1 - 修正拖曳排序判定區域、解決事件冒泡干擾，並強化 Try-Catch 健壯性
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -68,9 +68,13 @@ const TreeNode = React.memo(({
 
   // 自動調整文字框高度
   const handleTextareaInput = (e) => {
-    e.target.style.height = 'auto';
-    e.target.style.height = `${e.target.scrollHeight}px`;
-    actions.updateKepanNode(kepanNode.id, 'content', e.target.value);
+    try {
+      e.target.style.height = 'auto';
+      e.target.style.height = `${e.target.scrollHeight}px`;
+      actions.updateKepanNode(kepanNode.id, 'content', e.target.value);
+    } catch (error) {
+      console.error("更新文字高度時發生錯誤:", error);
+    }
   };
 
   useEffect(() => {
@@ -92,33 +96,35 @@ const TreeNode = React.memo(({
     }
   };
 
-  // 拖曳狀態視覺反饋
+  // 拖曳狀態視覺反饋 (融入主視覺色系 Teal)
   const isDragged = dragInfo.draggedId === kepanNode.id;
   const isDragOver = dragInfo.overId === kepanNode.id;
-  let dropZoneClass = '';
-  if (isDragOver && dragInfo.position === 'top') dropZoneClass = 'border-t-2 border-blue-500';
-  if (isDragOver && dragInfo.position === 'bottom') dropZoneClass = 'border-b-2 border-blue-500';
-  if (isDragOver && dragInfo.position === 'inside') dropZoneClass = 'bg-blue-50 rounded';
+  let dropZoneClass = 'border border-transparent';
+  if (isDragOver && dragInfo.position === 'top') dropZoneClass = 'border-t-2 border-t-teal-500 rounded-t bg-stone-50/50';
+  if (isDragOver && dragInfo.position === 'bottom') dropZoneClass = 'border-b-2 border-b-teal-500 rounded-b bg-stone-50/50';
+  if (isDragOver && dragInfo.position === 'inside') dropZoneClass = 'bg-teal-50/80 rounded ring-1 ring-teal-300';
 
   return (
     <div className={`
       ${mode === 'text' ? 'mb-4' : 'mb-2'} 
       ${mode === 'outline' && depth > 0 ? 'ml-6 border-l-2 border-stone-200 pl-4' : 'ml-0'}
-      ${isDragged ? 'opacity-50' : 'opacity-100'}
-      ${dropZoneClass}
+      ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'}
       transition-all duration-200
     `}>
-      <div className="group relative flex items-start gap-1">
+      {/* 拖曳判定區域 (熱區涵蓋整個標題行) */}
+      <div 
+        onDragOver={(e) => actions.handleDragOver(e, kepanNode.id)}
+        onDrop={(e) => actions.handleDrop(e, kepanNode.id)}
+        className={`group relative flex items-start gap-1 p-1.5 -ml-1.5 transition-colors ${dropZoneClass}`}
+      >
         
         {/* 拖曳把手 */}
         {mode === 'outline' && (
           <div 
             draggable
             onDragStart={(e) => actions.handleDragStart(e, kepanNode.id)}
-            onDragOver={(e) => actions.handleDragOver(e, kepanNode.id)}
-            onDrop={(e) => actions.handleDrop(e, kepanNode.id)}
             className="mt-1 cursor-grab opacity-0 group-hover:opacity-100 text-stone-300 hover:text-stone-500 transition-opacity"
-            title="拖曳以排序"
+            title="按住拖曳以排序"
           >
             <GripVertical size={16} />
           </div>
@@ -245,8 +251,13 @@ const TreeNode = React.memo(({
 // --- 主應用程式 ---
 export default function App() {
   const [kepanTree, setKepanTree] = useState(() => {
-    const savedTree = localStorage.getItem('outline_editor_autosave_v2');
-    return savedTree ? JSON.parse(savedTree) : INITIAL_EMPTY_KEPAN_TREE;
+    try {
+      const savedTree = localStorage.getItem('outline_editor_autosave_v2');
+      return savedTree ? JSON.parse(savedTree) : INITIAL_EMPTY_KEPAN_TREE;
+    } catch (error) {
+      console.log("Local Storage 讀取失敗，使用預設模板:", error);
+      return INITIAL_EMPTY_KEPAN_TREE;
+    }
   });
   const [mode, setMode] = useState('outline'); 
   const [focusId, setFocusId] = useState(null); 
@@ -259,7 +270,11 @@ export default function App() {
 
   // 本地端自動存檔
   useEffect(() => {
-    localStorage.setItem('outline_editor_autosave_v2', JSON.stringify(kepanTree));
+    try {
+      localStorage.setItem('outline_editor_autosave_v2', JSON.stringify(kepanTree));
+    } catch (error) {
+      console.error("Local Storage 儲存失敗:", error);
+    }
   }, [kepanTree]);
 
   // --- 狀態切換 Actions ---
@@ -458,73 +473,104 @@ export default function App() {
     });
   }, []);
 
-  // --- 拖曳事件處理 ---
+  // --- 拖曳事件處理 (已修復判定區間與事件冒泡) ---
   const handleDragStart = useCallback((e, id) => {
-    e.dataTransfer.setData('text/plain', id);
-    setDragInfo({ draggedId: id, overId: null, position: null });
+    e.stopPropagation(); // 阻止事件向上冒泡
+    try {
+      e.dataTransfer.setData('text/plain', id);
+      setDragInfo({ draggedId: id, overId: null, position: null });
+    } catch (error) {
+      console.log("DragStart 處理發生錯誤:", error);
+    }
   }, []);
 
   const handleDragOver = useCallback((e, id) => {
-    e.preventDefault();
+    e.preventDefault();  // 必須阻止預設行為才能允許放置 (Drop)
+    e.stopPropagation(); // 阻止冒泡，確保拖曳感應維持在最內層被指向的節點
+    
     if (id === dragInfo.draggedId) return;
     
-    const elementRect = e.currentTarget.getBoundingClientRect();
-    const relativeY = e.clientY - elementRect.top;
-    let dragPosition = 'inside';
-    if (relativeY < elementRect.height * 0.25) dragPosition = 'top';
-    else if (relativeY > elementRect.height * 0.75) dragPosition = 'bottom';
+    try {
+      const elementRect = e.currentTarget.getBoundingClientRect();
+      const relativeY = e.clientY - elementRect.top;
+      let dragPosition = 'inside';
+      
+      // 將整個標題行高度切割成上、中、下三個區塊進行判定
+      if (relativeY < elementRect.height * 0.25) dragPosition = 'top';
+      else if (relativeY > elementRect.height * 0.75) dragPosition = 'bottom';
 
-    setDragInfo(prev => ({ ...prev, overId: id, position: dragPosition }));
+      // 只有當位置真正改變時才更新狀態，避免頻繁渲染造成效能卡頓
+      setDragInfo(prev => {
+        if (prev.overId === id && prev.position === dragPosition) return prev;
+        return { ...prev, overId: id, position: dragPosition };
+      });
+    } catch (error) {
+      console.log("DragOver 處理發生錯誤:", error);
+    }
   }, [dragInfo.draggedId]);
 
   const handleDrop = useCallback((e, targetId) => {
     e.preventDefault();
-    const draggedNodeId = e.dataTransfer.getData('text/plain');
-    const { position } = dragInfo;
-    setDragInfo({ draggedId: null, overId: null, position: null });
-
-    if (!draggedNodeId || draggedNodeId === targetId) return;
-
-    setKepanTree(prevTree => {
-      const clonedTree = deepCloneKepanTree(prevTree);
-      let draggedNode = null;
+    e.stopPropagation();
+    
+    try {
+      const draggedNodeId = e.dataTransfer.getData('text/plain');
+      const { position } = dragInfo;
       
-      // 從原位置移除
-      const removeDraggedNode = (nodes) => {
-        const index = nodes.findIndex(n => n.id === draggedNodeId);
-        if (index !== -1) {
-          draggedNode = nodes.splice(index, 1)[0];
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && removeDraggedNode(node.children)) return true;
-        }
-        return false;
-      };
-      removeDraggedNode(clonedTree);
-      if (!draggedNode) return prevTree;
+      // 清除拖曳視覺狀態
+      setDragInfo({ draggedId: null, overId: null, position: null });
 
-      // 插入到目標位置
-      const insertAtTarget = (nodes) => {
-        const index = nodes.findIndex(n => n.id === targetId);
-        if (index !== -1) {
-          if (position === 'top') nodes.splice(index, 0, draggedNode);
-          else if (position === 'bottom') nodes.splice(index + 1, 0, draggedNode);
-          else {
-            if (!nodes[index].children) nodes[index].children = [];
-            nodes[index].children.push(draggedNode);
-            setExpandedTreeNodes(prev => new Set(prev).add(targetId));
+      if (!draggedNodeId || draggedNodeId === targetId) return;
+
+      setKepanTree(prevTree => {
+        const clonedTree = deepCloneKepanTree(prevTree);
+        let draggedNode = null;
+        
+        // 1. 從原位置移除拖曳項目
+        const removeDraggedNode = (nodes) => {
+          const index = nodes.findIndex(n => n.id === draggedNodeId);
+          if (index !== -1) {
+            draggedNode = nodes.splice(index, 1)[0];
+            return true;
           }
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && insertAtTarget(node.children)) return true;
-        }
-        return false;
-      };
-      insertAtTarget(clonedTree);
-      return clonedTree;
-    });
+          for (let node of nodes) {
+            if (node.children && removeDraggedNode(node.children)) return true;
+          }
+          return false;
+        };
+        removeDraggedNode(clonedTree);
+        
+        if (!draggedNode) return prevTree;
+
+        // 2. 將拖曳項目插入到目標節點的對應位置
+        const insertAtTarget = (nodes) => {
+          const index = nodes.findIndex(n => n.id === targetId);
+          if (index !== -1) {
+            if (position === 'top') {
+              nodes.splice(index, 0, draggedNode);
+            } else if (position === 'bottom') {
+              nodes.splice(index + 1, 0, draggedNode);
+            } else {
+              if (!nodes[index].children) nodes[index].children = [];
+              nodes[index].children.unshift(draggedNode); // 改為從最上方插入，更符合子層建立直覺
+              setExpandedTreeNodes(prev => new Set(prev).add(targetId));
+            }
+            return true;
+          }
+          for (let node of nodes) {
+            if (node.children && insertAtTarget(node.children)) return true;
+          }
+          return false;
+        };
+        insertAtTarget(clonedTree);
+        
+        return clonedTree;
+      });
+    } catch (error) {
+      console.error("拖曳排序處理失敗:", error);
+      // 若發生錯誤則恢復視覺狀態
+      setDragInfo({ draggedId: null, overId: null, position: null });
+    }
   }, [dragInfo]);
 
   // Actions 包裝物件
@@ -537,28 +583,37 @@ export default function App() {
 
   // --- 檔案匯出/匯入 ---
   const handleExportToFile = () => {
-    const fileBlob = new Blob([JSON.stringify(kepanTree, null, 2)], { type: 'application/json' });
-    const downloadUrl = URL.createObjectURL(fileBlob);
-    const linkElement = document.createElement('a');
-    linkElement.href = downloadUrl;
-    linkElement.download = '科判資料.json';
-    linkElement.click();
-    URL.revokeObjectURL(downloadUrl);
+    try {
+      const fileBlob = new Blob([JSON.stringify(kepanTree, null, 2)], { type: 'application/json' });
+      const downloadUrl = URL.createObjectURL(fileBlob);
+      const linkElement = document.createElement('a');
+      linkElement.href = downloadUrl;
+      linkElement.download = '科判資料.json';
+      linkElement.click();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("檔案匯出失敗:", error);
+    }
   };
 
   const handleImportFromFile = (e) => {
-    const selectedFile = e.target.files[0];
-    if (!selectedFile) return;
-    const fileReader = new FileReader();
-    fileReader.onload = (event) => {
-      try {
-        const parsedData = JSON.parse(event.target.result);
-        setKepanTree(parsedData);
-      } catch (err) {
-        console.error("檔案解析失敗");
-      }
-    };
-    fileReader.readAsText(selectedFile);
+    try {
+      const selectedFile = e.target.files[0];
+      if (!selectedFile) return;
+      const fileReader = new FileReader();
+      fileReader.onload = (event) => {
+        try {
+          const parsedData = JSON.parse(event.target.result);
+          setKepanTree(parsedData);
+        } catch (err) {
+          console.error("檔案解析失敗:", err);
+          alert("檔案格式不正確，請匯入有效的 JSON 檔案。");
+        }
+      };
+      fileReader.readAsText(selectedFile);
+    } catch (error) {
+      console.error("檔案讀取發生錯誤:", error);
+    }
   };
 
   const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : kepanTree;
