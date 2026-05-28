@@ -1,11 +1,11 @@
-// Version: 1.6.0 - 新增 SmartTextarea 浮動格式化工具列，支援一鍵標記重點與註解
+// Version: 1.6.1 - 升級智慧標記為標準 Markdown 粗體 (**)、導入 Gemini 3.1 系列模型支援、優化浮動工具列體驗
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
   Trash2, Save, FolderOpen, Target, Home, 
   SplitSquareHorizontal, GripVertical, AlignLeft,
   Undo2, Redo2, Columns, Map, BookOpen, Wand2, Settings,
-  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, MessageSquareQuote
+  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold
 } from 'lucide-react';
 
 // --- 工具函數 ---
@@ -35,17 +35,17 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   return null;
 };
 
-// --- 破局功能：輕量級富文本解析 ---
+// --- 輕量級富文本解析 (升級為標準 Markdown 粗體) ---
 const formatRichText = (txt, isDark) => {
   if (!txt) return '';
   let html = txt
     .replace(/</g, '&lt;').replace(/>/g, '&gt;') // 防 XSS
     .replace(/==(.*?)==/g, `<mark class="${isDark ? 'bg-yellow-500/30 text-yellow-200' : 'bg-yellow-200 text-yellow-800'} px-1 mx-0.5 rounded">$1</mark>`)
-    .replace(/\(\((.*?)\)\)/g, `<sup class="${isDark ? 'bg-teal-900/50 text-teal-300' : 'bg-teal-100 text-teal-700'} px-1 py-0.5 rounded shadow-sm text-[11px] cursor-help ml-1 font-medium border ${isDark ? 'border-teal-700/50' : 'border-teal-200'}" title="加註">$1</sup>`);
+    .replace(/\*\*(.*?)\*\*/g, `<strong class="font-extrabold ${isDark ? 'text-teal-300' : 'text-teal-700'}">$1</strong>`);
   return html.replace(/\n/g, '<br/>');
 };
 
-// --- 破局組件：智慧文字輸入框 (SmartTextarea) 支援浮動格式化 ---
+// --- 智慧文字輸入框 (SmartTextarea) 支援一鍵粗體標記 ---
 const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
@@ -92,16 +92,16 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('==', '=='); }}
             className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${isDark ? 'hover:bg-stone-700 text-yellow-400' : 'hover:bg-stone-100 text-yellow-600'}`}
-            title="反白文字後點擊，標記為重點"
+            title="反白文字後點擊，標記為黃色重點"
           >
             <Highlighter size={12} className="mr-1"/> 重點
           </button>
           <button
-            onMouseDown={(e) => { e.preventDefault(); applyFormat('((', '))'); }}
+            onMouseDown={(e) => { e.preventDefault(); applyFormat('**', '**'); }}
             className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${isDark ? 'hover:bg-stone-700 text-teal-400' : 'hover:bg-stone-100 text-teal-600'}`}
-            title="反白文字後點擊，加入註解"
+            title="反白文字後點擊，標記為粗體"
           >
-            <MessageSquareQuote size={12} className="mr-1"/> 註解
+            <Bold size={12} className="mr-1"/> 粗體
           </button>
         </div>
 
@@ -146,11 +146,12 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "children": []
 }];
 
-// --- AI 提示詞與模型設定 ---
+// --- AI 提示詞與模型設定 (加入 Gemini 3.1 系列) ---
 const AI_MODELS = [
-  { label: 'Gemini 2.5 Flash (最穩定快速)', value: 'gemini-2.5-flash' },
-  { label: 'Gemini 3.0 Flash (最新進階版)', value: 'gemini-3.0-flash' },
-  { label: 'Gemini 1.5 Flash (高相容舊版)', value: 'gemini-1.5-flash' }
+  { label: 'Gemini 3.1 Flash (最新高效推薦)', value: 'gemini-3.1-flash' },
+  { label: 'Gemini 3.1 Flash Lite (輕量高配額)', value: 'gemini-3.1-flash-lite' },
+  { label: 'Gemini 2.5 Flash (穩定快速型)', value: 'gemini-2.5-flash' },
+  { label: 'Gemini 3.0 Flash (進階體驗版)', value: 'gemini-3.0-flash' }
 ];
 
 const AI_PROMPT_PRESETS = [
@@ -434,7 +435,7 @@ export default function App() {
   
   const [showSettings, setShowSettings] = useState(false);
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
-  const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-2.5-flash');
+  const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-3.1-flash');
   const [aiPrompt, setAiPrompt] = useState(() => localStorage.getItem('outline_ai_prompt') || AI_PROMPT_PRESETS[0].value);
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   
