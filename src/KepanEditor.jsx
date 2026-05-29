@@ -1,4 +1,4 @@
-// Version: 1.6.1 - 升級智慧標記為標準 Markdown 粗體 (**)、導入 Gemini 3.1 系列模型支援、優化浮動工具列體驗
+// Version: 1.7.0 - 移除 AI 黑箱輪詢機制、嚴格化金鑰驗證、極致壓縮原文模式間距、強化開新檔案功能
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -35,7 +35,7 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   return null;
 };
 
-// --- 輕量級富文本解析 (升級為標準 Markdown 粗體) ---
+// --- 輕量級富文本解析 ---
 const formatRichText = (txt, isDark) => {
   if (!txt) return '';
   let html = txt
@@ -45,7 +45,7 @@ const formatRichText = (txt, isDark) => {
   return html.replace(/\n/g, '<br/>');
 };
 
-// --- 智慧文字輸入框 (SmartTextarea) 支援一鍵粗體標記 ---
+// --- 智慧文字輸入框 (SmartTextarea) ---
 const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
@@ -70,12 +70,10 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
 
     const newVal = before + prefix + selected + suffix + after;
     
-    // 更新高度與內容
     textareaRef.current.style.height = 'auto';
     textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     onChange(newVal);
 
-    // 延遲恢復游標位置，確保 React 完成重新渲染
     setTimeout(() => {
       if (textareaRef.current) {
          textareaRef.current.focus();
@@ -87,12 +85,11 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
   if (isEditing) {
     return (
       <div className="relative group/editor w-full">
-        {/* 浮動格式化工具列 (使用 onMouseDown 防止失去焦點) */}
         <div className={`absolute -top-8 right-0 flex gap-1 p-1 rounded shadow-md border opacity-0 group-hover/editor:opacity-100 transition-opacity z-10 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('==', '=='); }}
             className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${isDark ? 'hover:bg-stone-700 text-yellow-400' : 'hover:bg-stone-100 text-yellow-600'}`}
-            title="反白文字後點擊，標記為黃色重點"
+            title="反白文字後點擊，標記為重點"
           >
             <Highlighter size={12} className="mr-1"/> 重點
           </button>
@@ -117,7 +114,7 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
-              if (onSplit) onSplit(textareaRef.current.selectionStart, e.target.value);
+              if (onSplit) onSplit(textareaRef.current.selectionStart, e.target.value, e.shiftKey);
               setIsEditing(false);
             }
           }}
@@ -146,12 +143,12 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "children": []
 }];
 
-// --- AI 提示詞與模型設定 (加入 Gemini 3.1 系列) ---
+// --- AI 提示詞與模型設定 (嚴格模型清單) ---
 const AI_MODELS = [
-  { label: 'Gemini 3.1 Flash (最新高效推薦)', value: 'gemini-3.1-flash' },
-  { label: 'Gemini 3.1 Flash Lite (輕量高配額)', value: 'gemini-3.1-flash-lite' },
-  { label: 'Gemini 2.5 Flash (穩定快速型)', value: 'gemini-2.5-flash' },
-  { label: 'Gemini 3.0 Flash (進階體驗版)', value: 'gemini-3.0-flash' }
+  { label: 'Gemini 2.5 Flash (預設穩定)', value: 'gemini-2.5-flash' },
+  { label: 'Gemini 3.1 Flash (最新高效)', value: 'gemini-3.1-flash' },
+  { label: 'Gemini 3.1 Flash Lite (輕量快速)', value: 'gemini-3.1-flash-lite' },
+  { label: 'Gemini 1.5 Pro (進階推理)', value: 'gemini-1.5-pro' }
 ];
 
 const AI_PROMPT_PRESETS = [
@@ -197,6 +194,8 @@ const TreeNode = React.memo(({
     ? ['text-blue-300 border-blue-300', 'text-teal-300 border-teal-300', 'text-emerald-300 border-emerald-300', 'text-cyan-300 border-cyan-300', 'text-indigo-300 border-indigo-300']
     : ['text-blue-900 border-blue-900', 'text-teal-800 border-teal-800', 'text-emerald-700 border-emerald-700', 'text-cyan-700 border-cyan-700', 'text-blue-600 border-blue-600'];
   const colorClass = depthColors[depth % depthColors.length];
+  
+  // 原文模式的標題大小與間距，壓縮冗餘空間
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
 
@@ -219,10 +218,6 @@ const TreeNode = React.memo(({
 
   const handleAIAssistClick = (e) => {
     e.stopPropagation();
-    if (!userApiKey || userApiKey.trim() === '') {
-      showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
-      return;
-    }
     actions.generateAISkeleton(kepanNode.id);
   };
 
@@ -244,10 +239,14 @@ const TreeNode = React.memo(({
     }
   };
 
+  // 原文模式時完全移除外部間距
+  const wrapperSpacingClass = mode === 'text' ? 'mb-0' : 'mb-2';
+  const paddingLeftClass = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0';
+
   return (
     <div className={`
-      ${mode === 'text' ? 'mb-0 mt-0' : 'mb-2'} 
-      ${(mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0'}
+      ${wrapperSpacingClass} 
+      ${paddingLeftClass}
       ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'}
       transition-all duration-200
     `}>
@@ -292,7 +291,7 @@ const TreeNode = React.memo(({
               className={`
                 font-bold bg-transparent border-b border-transparent focus:border-teal-500 focus:outline-none transition-all flex-1 min-w-[150px]
                 ${colorClass} 
-                ${mode === 'text' ? `${textSizeClass} mb-0 pb-0 mt-3` : 'text-lg mb-1 pb-1'}
+                ${mode === 'text' ? `${textSizeClass} mt-4 mb-1 pb-0` : 'text-lg mb-1 pb-1'}
               `}
             />
             
@@ -355,23 +354,32 @@ const TreeNode = React.memo(({
           )}
 
           {isContentVisible && mode !== 'split' && (
-            <div className={`relative group/text ${mode === 'text' ? 'mb-0 mt-0' : 'mb-1 mt-1'} w-full`}>
+            <div className={`relative group/text w-full`}>
               <SmartTextarea
                 value={kepanNode.content}
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'content', val)}
-                onSplit={(cursorStart, currentText) => actions.splitTextToSiblingKepanNode(kepanNode.id, cursorStart, currentText)}
-                placeholder={mode === 'text' ? "在此輸入或貼上原文 (反白文字可使用浮動工具列標記重點)..." : "無內文"}
+                onSplit={(cursorStart, currentText, isShift) => {
+                  if (isShift) {
+                    actions.splitTextToChildKepanNode(kepanNode.id, cursorStart, currentText);
+                  } else {
+                    actions.splitTextToSiblingKepanNode(kepanNode.id, cursorStart, currentText);
+                  }
+                }}
+                placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 isDark={isDark}
                 className={`
                   w-full bg-transparent transition-all
-                  ${mode === 'outline' ? `text-sm p-2 rounded border ${isDark ? 'text-stone-400 bg-stone-800/50 border-stone-700' : 'text-stone-500 bg-stone-50/50 border-stone-100'}` : `text-base leading-relaxed p-0 rounded ${isDark ? 'text-stone-300 hover:bg-stone-800/30 focus:bg-stone-800/30' : 'text-stone-800 hover:bg-stone-50/50 focus:bg-stone-50/50'}`}
+                  ${mode === 'outline' ? `text-sm p-2 rounded border ${isDark ? 'text-stone-400 bg-stone-800/50 border-stone-700' : 'text-stone-500 bg-stone-50/50 border-stone-100'}` : `text-base leading-[1.8] py-1 rounded ${isDark ? 'text-stone-300 hover:bg-stone-800/30 focus:bg-stone-800/30' : 'text-stone-800 hover:bg-stone-50/50 focus:bg-stone-50/50'}`}
                 `}
               />
               
               {mode === 'text' && kepanNode.content && (
-                <div className="absolute bottom-1 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0">
+                <div className="absolute bottom-1 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0 flex gap-2">
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">
                     Ctrl+Enter 同層拆分
+                  </span>
+                  <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">
+                    Ctrl+Shift+Enter 子層拆分
                   </span>
                 </div>
               )}
@@ -435,7 +443,7 @@ export default function App() {
   
   const [showSettings, setShowSettings] = useState(false);
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
-  const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-3.1-flash');
+  const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-2.5-flash');
   const [aiPrompt, setAiPrompt] = useState(() => localStorage.getItem('outline_ai_prompt') || AI_PROMPT_PRESETS[0].value);
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   
@@ -641,8 +649,6 @@ export default function App() {
   }, [commitChange]);
 
   const splitTextToSiblingKepanNode = useCallback((nodeId, cursorStart, currentText) => {
-    if (cursorStart === 0 || cursorStart === currentText.length) return;
-
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
 
@@ -669,6 +675,25 @@ export default function App() {
         targetNode.content = textBefore;
         const newNode = { id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] };
         parentArray.splice(targetIndex + 1, 0, newNode);
+        return clonedTree;
+      }
+      return currentTree;
+    });
+  }, [commitChange]);
+
+  const splitTextToChildKepanNode = useCallback((nodeId, cursorStart, currentText) => {
+    const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
+    const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
+
+    commitChange(currentTree => {
+      const clonedTree = deepCloneKepanTree(currentTree);
+      const targetNode = findNodeInKepanTree(clonedTree, nodeId);
+      if (targetNode) {
+        targetNode.content = textBefore;
+        const newNode = { id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] };
+        if (!targetNode.children) targetNode.children = [];
+        targetNode.children.unshift(newNode);
+        setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
         return clonedTree;
       }
       return currentTree;
@@ -826,10 +851,12 @@ export default function App() {
     }
   }, [dragInfo, commitChange]);
 
+  // --- 破局：單一精準請求，移除輪詢與隱藏錯誤 ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
+    // 嚴格金鑰驗證，不允許空白，不依賴環境變數
     const actualKey = userApiKey.trim();
     if (!actualKey) {
       showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
@@ -844,81 +871,71 @@ export default function App() {
       generationConfig: { responseMimeType: "application/json" }
     };
 
-    let attempt = 0;
-    const maxAttempts = 2; 
-    let success = false;
+    try {
+      // 僅呼叫用戶指定的單一模型，避免重複消耗配額導致 429
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${userApiModel}:generateContent?key=${actualKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    while (attempt < maxAttempts) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${userApiModel}:generateContent?key=${actualKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errorTxt = await response.text();
-          throw new Error(`API 錯誤 (${response.status}): ${errorTxt.substring(0, 100)}`);
-        }
-        
-        const result = await response.json();
-        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (textResult) {
-          textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
-          const generatedNodes = JSON.parse(textResult);
-          
-          commitChange(currentTree => {
-            const clonedTree = deepCloneKepanTree(currentTree);
-            const tNode = findNodeInKepanTree(clonedTree, nodeId);
-            if (tNode) {
-              tNode.content = ""; 
-              const newAiNodes = generatedNodes.map(n => ({
-                id: generateUniqueId(),
-                title: n.title || "新科判",
-                content: n.content || "",
-                note: n.note || "",
-                children: []
-              }));
-              tNode.children = [...newAiNodes, ...(tNode.children || [])];
-              
-              setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-              return clonedTree;
-            }
-            return currentTree;
-          });
-          
-          success = true;
-          showToast("AI 拆分完成！");
-          break; 
-        } else {
-          throw new Error("回傳結果為空");
-        }
-      } catch (error) {
-        attempt++;
-        if (attempt === maxAttempts) {
-           showToast(`AI 生成失敗。原因: ${error.message}`);
-        } else {
-           await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+      if (!response.ok) {
+        const errorJson = await response.json();
+        throw new Error(errorJson.error?.message || `HTTP 錯誤 ${response.status}`);
       }
+      
+      const result = await response.json();
+      let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (textResult) {
+        textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const generatedNodes = JSON.parse(textResult);
+        
+        commitChange(currentTree => {
+          const clonedTree = deepCloneKepanTree(currentTree);
+          const tNode = findNodeInKepanTree(clonedTree, nodeId);
+          if (tNode) {
+            tNode.content = ""; 
+            const newAiNodes = generatedNodes.map(n => ({
+              id: generateUniqueId(),
+              title: n.title || "新科判",
+              content: n.content || "",
+              note: n.note || "",
+              children: []
+            }));
+            tNode.children = [...newAiNodes, ...(tNode.children || [])];
+            setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+            return clonedTree;
+          }
+          return currentTree;
+        });
+        
+        showToast("AI 拆分完成！");
+      } else {
+        throw new Error("模型回傳結果為空");
+      }
+    } catch (error) {
+      showToast(`AI 生成失敗: ${error.message}`, 8000); // 顯示完整的官方錯誤訊息
+    } finally {
+      setIsAILoadingId(null);
     }
-    
-    setIsAILoadingId(null);
   };
 
   const kepanTreeActions = {
     updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode, moveNode,
-    deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode, setFocusId,
-    setDeleteMenuId, toggleTree, toggleContent, toggleNote, generateAISkeleton,
+    deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode, splitTextToChildKepanNode,
+    setFocusId, setDeleteMenuId, toggleTree, toggleContent, toggleNote, generateAISkeleton,
     handleDragStart, handleDragOver, handleDrop
   };
 
   const handleNewFile = () => {
-    if (window.confirm("確定要開啟新檔案嗎？未存檔的變更將會遺失。")) {
+    if (window.confirm("確定要建立新檔案嗎？目前未存檔的變更將會遺失。")) {
       commitChange(INITIAL_EMPTY_KEPAN_TREE);
       setFocusId(null);
-      showToast("已建立新科判檔案。");
+      setExpandedTreeNodes(new Set(['root-1']));
+      setExpandedContentNodes(new Set());
+      setExpandedNoteNodes(new Set());
+      showToast("已建立乾淨的新檔案。");
     }
   };
 
@@ -1064,7 +1081,7 @@ export default function App() {
 
           <div className={`w-px h-4 mx-1 ${isDark ? 'bg-stone-700' : 'bg-stone-300'}`}></div>
 
-          <button onClick={handleNewFile} className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`} title="開新檔案">
+          <button onClick={handleNewFile} className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`} title="建立新檔案">
             <FilePlus size={16} /> <span className="hidden sm:inline">開新檔</span>
           </button>
 
@@ -1094,9 +1111,10 @@ export default function App() {
                   type="password" 
                   value={userApiKey} 
                   onChange={(e) => setUserApiKey(e.target.value)}
-                  placeholder="請貼上您的 API 金鑰 (必填)"
+                  placeholder="請輸入您的 API 金鑰 (必填)"
                   className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'}`}
                 />
+                <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>嚴格金鑰驗證：必須輸入有效的 API Key 才能呼叫模型。</p>
               </div>
               <div className="w-1/3">
                 <label className="block text-sm font-bold mb-2 text-teal-600">指定模型</label>
@@ -1165,7 +1183,6 @@ export default function App() {
            </div>
         ) : mode === 'split' ? (
            <div className="w-full max-w-7xl flex gap-6 h-[80vh]">
-             {/* 左側大綱區 */}
              <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
                 {currentRenderData.map(rootNode => (
                   <TreeNode 
@@ -1175,7 +1192,6 @@ export default function App() {
                   />
                 ))}
              </div>
-             {/* 右側連續對讀區 */}
              <div className={`w-2/3 overflow-y-auto p-8 rounded-lg shadow-sm border ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
                 {renderContinuousSplitText(currentRenderData)}
              </div>
