@@ -1,4 +1,4 @@
-// Version: 4.2.2 - 徹底移除 Firebase 依賴，修復佈署編譯問題並落實全本地儲存
+// Version: 4.2.3 - 修復 Markdown 粗體渲染相容性、補回預設字型選項、強制修復下拉選單深淺色對比度
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -95,7 +95,7 @@ const formatRichText = (txt, themeConfig) => {
   let html = txt
     .replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/==(.*?)==/g, `<mark class="${themeConfig.highlight} px-1 mx-0.5 rounded">$1</mark>`)
-    .replace(/\*\*(.*?)\*\*/g, `<strong class="font-extrabold ${themeConfig.bold}">$1</strong>`);
+    .replace(/\*\*(.*?)\*\*/g, `<strong class="font-bold ${themeConfig.bold}" style="font-weight: bold;">$1</strong>`);
   return html.replace(/\n/g, '<br/>');
 };
 
@@ -234,7 +234,7 @@ const AI_MODELS = [
 ];
 
 const FONT_OPTIONS = [
-  { label: '現代黑體 (System Sans)', value: 'font-sans' },
+  { label: '現代無襯線 (系統預設)', value: 'font-sans' },
   { label: '溫潤圓體 (Rounded)', value: 'font-round' },
   { label: '自然手寫 (Handwriting)', value: 'font-hand' },
   { label: '傳統明體 (Serif)', value: 'font-serif' },
@@ -1504,12 +1504,12 @@ export default function App() {
               <div className="flex-1">
                 <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Type size={16} className="inline mr-1"/> 偏好字型 (全域)</label>
                 <select 
-                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-stone-800 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200 text-stone-800'} text-sm`}
                   onChange={(e) => setSettings(prev => ({...prev, fontFamily: e.target.value}))}
                   value={settings.fontFamily}
                 >
                   {FONT_OPTIONS.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
+                    <option key={f.value} value={f.value} className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>{f.label}</option>
                   ))}
                 </select>
               </div>
@@ -1529,12 +1529,12 @@ export default function App() {
               <div className="w-1/3">
                 <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>指定模型</label>
                 <select 
-                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-stone-800 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200 text-stone-800'} text-sm`}
                   onChange={(e) => setSettings(prev => ({...prev, apiModel: e.target.value}))}
                   value={settings.apiModel}
                 >
                   {AI_MODELS.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
+                    <option key={m.value} value={m.value} className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>{m.label}</option>
                   ))}
                 </select>
               </div>
@@ -1556,14 +1556,14 @@ export default function App() {
             <div className="mb-6">
               <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
               <select 
-                className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-stone-800 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200 text-stone-800'} text-sm`}
                 onChange={(e) => setSettings(prev => ({...prev, aiPrompt: e.target.value}))}
                 value={AI_PROMPT_PRESETS.find(p => p.value === settings.aiPrompt) ? settings.aiPrompt : "custom"}
               >
                 {AI_PROMPT_PRESETS.map((preset, idx) => (
-                  <option key={idx} value={preset.value}>{preset.label}</option>
+                  <option key={idx} value={preset.value} className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>{preset.label}</option>
                 ))}
-                <option value="custom">✍️ 自訂提示詞...</option>
+                <option value="custom" className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>✍️ 自訂提示詞...</option>
               </select>
               <textarea
                 value={settings.aiPrompt}
