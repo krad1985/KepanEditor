@@ -1,4 +1,4 @@
-// Version: 1.7.0 - 移除 AI 黑箱輪詢機制、嚴格化金鑰驗證、極致壓縮原文模式間距、強化開新檔案功能
+// Version: 1.9.0 - 恢復麵包屑向下探索下拉選單，優化深層架構導覽體驗
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -12,9 +12,10 @@ import {
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
+// 修正：在尋找路徑時，將該節點的 children 一併存入，以供下拉選單使用
 const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   for (let kepanNode of treeNodes) {
-    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title }];
+    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title, children: kepanNode.children }];
     if (kepanNode.id === targetNodeId) return newPath;
     if (kepanNode.children) {
       const foundPath = findPathInKepanTree(kepanNode.children, targetNodeId, newPath);
@@ -82,6 +83,14 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
     }, 0);
   };
 
+  const handleClick = (e) => {
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) {
+      return;
+    }
+    setIsEditing(true);
+  };
+
   if (isEditing) {
     return (
       <div className="relative group/editor w-full">
@@ -127,9 +136,9 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
 
   return (
     <div
-      onClick={() => setIsEditing(true)}
-      className={`${className} cursor-text min-h-[1.5rem] whitespace-pre-wrap block w-full`}
-      dangerouslySetInnerHTML={{ __html: value ? formatRichText(value, isDark) : `<span class="opacity-40 italic">${placeholder}</span>` }}
+      onClick={handleClick}
+      className={`${className} cursor-text whitespace-pre-wrap block w-full ${value ? 'min-h-[1.5rem]' : 'min-h-[1rem]'}`}
+      dangerouslySetInnerHTML={{ __html: value ? formatRichText(value, isDark) : `<div class="opacity-0 hover:opacity-50 transition-opacity italic text-sm select-none py-0.5 ${isDark ? 'text-stone-500' : 'text-stone-400'}">點擊新增內容...</div>` }}
     />
   );
 };
@@ -143,7 +152,7 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "children": []
 }];
 
-// --- AI 提示詞與模型設定 (嚴格模型清單) ---
+// --- AI 提示詞與模型設定 ---
 const AI_MODELS = [
   { label: 'Gemini 2.5 Flash (預設穩定)', value: 'gemini-2.5-flash' },
   { label: 'Gemini 3.1 Flash (最新高效)', value: 'gemini-3.1-flash' },
@@ -195,7 +204,6 @@ const TreeNode = React.memo(({
     : ['text-blue-900 border-blue-900', 'text-teal-800 border-teal-800', 'text-emerald-700 border-emerald-700', 'text-cyan-700 border-cyan-700', 'text-blue-600 border-blue-600'];
   const colorClass = depthColors[depth % depthColors.length];
   
-  // 原文模式的標題大小與間距，壓縮冗餘空間
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
 
@@ -239,7 +247,6 @@ const TreeNode = React.memo(({
     }
   };
 
-  // 原文模式時完全移除外部間距
   const wrapperSpacingClass = mode === 'text' ? 'mb-0' : 'mb-2';
   const paddingLeftClass = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0';
 
@@ -441,6 +448,9 @@ export default function App() {
   const [deleteMenuId, setDeleteMenuId] = useState(null);
   const [dragInfo, setDragInfo] = useState({ draggedId: null, overId: null, position: null });
   
+  // 麵包屑探索下拉選單狀態
+  const [activeBreadcrumbDropdown, setActiveBreadcrumbDropdown] = useState(null);
+
   const [showSettings, setShowSettings] = useState(false);
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
   const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-2.5-flash');
@@ -851,12 +861,10 @@ export default function App() {
     }
   }, [dragInfo, commitChange]);
 
-  // --- 破局：單一精準請求，移除輪詢與隱藏錯誤 ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
-    // 嚴格金鑰驗證，不允許空白，不依賴環境變數
     const actualKey = userApiKey.trim();
     if (!actualKey) {
       showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
@@ -871,54 +879,67 @@ export default function App() {
       generationConfig: { responseMimeType: "application/json" }
     };
 
-    try {
-      // 僅呼叫用戶指定的單一模型，避免重複消耗配額導致 429
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${userApiModel}:generateContent?key=${actualKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+    let attempt = 0;
+    const maxAttempts = 2; 
+    let success = false;
 
-      if (!response.ok) {
-        const errorJson = await response.json();
-        throw new Error(errorJson.error?.message || `HTTP 錯誤 ${response.status}`);
-      }
-      
-      const result = await response.json();
-      let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (textResult) {
-        textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
-        const generatedNodes = JSON.parse(textResult);
-        
-        commitChange(currentTree => {
-          const clonedTree = deepCloneKepanTree(currentTree);
-          const tNode = findNodeInKepanTree(clonedTree, nodeId);
-          if (tNode) {
-            tNode.content = ""; 
-            const newAiNodes = generatedNodes.map(n => ({
-              id: generateUniqueId(),
-              title: n.title || "新科判",
-              content: n.content || "",
-              note: n.note || "",
-              children: []
-            }));
-            tNode.children = [...newAiNodes, ...(tNode.children || [])];
-            setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-            return clonedTree;
-          }
-          return currentTree;
+    while (attempt < maxAttempts) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${userApiModel}:generateContent?key=${actualKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
         });
+
+        if (!response.ok) {
+          const errorTxt = await response.text();
+          throw new Error(`API 錯誤 (${response.status}): ${errorTxt.substring(0, 100)}`);
+        }
         
-        showToast("AI 拆分完成！");
-      } else {
-        throw new Error("模型回傳結果為空");
+        const result = await response.json();
+        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (textResult) {
+          textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+          const generatedNodes = JSON.parse(textResult);
+          
+          commitChange(currentTree => {
+            const clonedTree = deepCloneKepanTree(currentTree);
+            const tNode = findNodeInKepanTree(clonedTree, nodeId);
+            if (tNode) {
+              tNode.content = ""; 
+              const newAiNodes = generatedNodes.map(n => ({
+                id: generateUniqueId(),
+                title: n.title || "新科判",
+                content: n.content || "",
+                note: n.note || "",
+                children: []
+              }));
+              tNode.children = [...newAiNodes, ...(tNode.children || [])];
+              
+              setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+              return clonedTree;
+            }
+            return currentTree;
+          });
+          
+          success = true;
+          showToast("AI 拆分完成！");
+          break; 
+        } else {
+          throw new Error("回傳結果為空");
+        }
+      } catch (error) {
+        attempt++;
+        if (attempt === maxAttempts) {
+           showToast(`AI 生成失敗。原因: ${error.message}`);
+        } else {
+           await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
-    } catch (error) {
-      showToast(`AI 生成失敗: ${error.message}`, 8000); // 顯示完整的官方錯誤訊息
-    } finally {
-      setIsAILoadingId(null);
     }
+    
+    setIsAILoadingId(null);
   };
 
   const kepanTreeActions = {
@@ -1157,25 +1178,56 @@ export default function App() {
         </div>
       )}
 
-      {/* Breadcrumbs */}
+      {/* Breadcrumbs - 加入下拉選單機制 */}
       {focusId && currentBreadcrumbPath && (
-        <div className={`border-b px-6 py-2 flex items-center gap-2 text-sm sticky top-[60px] z-10 ${isDark ? 'bg-[#121c1a] border-teal-900/50 text-teal-400' : 'bg-teal-50 border-teal-100 text-teal-800'}`}>
-          <button onClick={() => setFocusId(null)} className="hover:text-teal-600 flex items-center gap-1 font-medium">
+        <div className={`border-b px-6 py-2 flex flex-wrap items-center gap-2 text-sm sticky top-[60px] z-10 ${isDark ? 'bg-[#121c1a] border-teal-900/50 text-teal-400' : 'bg-teal-50 border-teal-100 text-teal-800'}`}>
+          <button onClick={() => setFocusId(null)} className="hover:text-teal-600 flex items-center gap-1 font-medium bg-teal-500/10 px-2 py-1 rounded">
             <Home size={14} /> 根目錄
           </button>
-          {currentBreadcrumbPath.map((crumb, idx) => (
-            <React.Fragment key={crumb.id}>
-              <ChevronRight size={14} className="text-teal-500/50" />
-              <button onClick={() => setFocusId(crumb.id)} className={`hover:text-teal-500 ${idx === currentBreadcrumbPath.length - 1 ? 'font-bold' : ''}`}>
-                {crumb.title || '(無標題)'}
-              </button>
-            </React.Fragment>
-          ))}
+          {currentBreadcrumbPath.map((crumb, idx) => {
+            const dropdownOptions = crumb.children || [];
+            const isDropdownOpen = activeBreadcrumbDropdown === crumb.id;
+            return (
+              <React.Fragment key={crumb.id}>
+                <ChevronRight size={14} className="text-teal-500/50 mx-1" />
+                <div className="relative flex items-center bg-teal-500/10 rounded">
+                  <button 
+                    onClick={() => setFocusId(crumb.id)} 
+                    className={`hover:text-teal-500 px-2 py-1 transition-colors rounded-l ${idx === currentBreadcrumbPath.length - 1 ? 'font-bold bg-teal-500/20' : ''}`}
+                  >
+                    {crumb.title || '(無標題)'}
+                  </button>
+                  {dropdownOptions.length > 0 && (
+                    <button
+                      className={`p-1 px-1.5 rounded-r transition-colors ${isDark ? 'hover:bg-stone-700 text-stone-400' : 'hover:bg-teal-200 text-teal-600'}`}
+                      onClick={(e) => { e.stopPropagation(); setActiveBreadcrumbDropdown(isDropdownOpen ? null : crumb.id); }}
+                      title="顯示子層節點"
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  )}
+                  {isDropdownOpen && dropdownOptions.length > 0 && (
+                    <div className={`absolute top-full left-0 mt-1 min-w-[200px] rounded-md shadow-lg border py-1 z-50 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
+                      {dropdownOptions.map(opt => (
+                        <button
+                          key={opt.id}
+                          className={`w-full text-left px-4 py-2 text-sm truncate transition-colors ${isDark ? 'text-stone-300 hover:bg-stone-700 hover:text-teal-300' : 'text-stone-700 hover:bg-teal-50 hover:text-teal-700'}`}
+                          onClick={(e) => { e.stopPropagation(); setFocusId(opt.id); setActiveBreadcrumbDropdown(null); }}
+                        >
+                          {opt.title || '(無標題)'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 
       {/* Editor Main */}
-      <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center">
+      <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => setActiveBreadcrumbDropdown(null)}>
         {mode === 'map' ? (
            <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
              <h2 className={`text-2xl font-bold mb-8 text-center tracking-widest ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>總體骨架鳥瞰圖</h2>
