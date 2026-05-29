@@ -1,21 +1,20 @@
-// Version: 1.9.0 - 恢復麵包屑向下探索下拉選單，優化深層架構導覽體驗
+// Version: 2.0.0 - 支援多組 API 金鑰輪替避開 429、自訂 AI 模型名稱、擴充沉浸式護眼主題
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
   Trash2, Save, FolderOpen, Target, Home, 
   SplitSquareHorizontal, GripVertical, AlignLeft,
   Undo2, Redo2, Columns, Map, BookOpen, Wand2, Settings,
-  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold
+  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette
 } from 'lucide-react';
 
 // --- 工具函數 ---
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
-// 修正：在尋找路徑時，將該節點的 children 一併存入，以供下拉選單使用
 const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   for (let kepanNode of treeNodes) {
-    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title, children: kepanNode.children }];
+    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title }];
     if (kepanNode.id === targetNodeId) return newPath;
     if (kepanNode.children) {
       const foundPath = findPathInKepanTree(kepanNode.children, targetNodeId, newPath);
@@ -37,17 +36,17 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
 };
 
 // --- 輕量級富文本解析 ---
-const formatRichText = (txt, isDark) => {
+const formatRichText = (txt, themeConfig) => {
   if (!txt) return '';
   let html = txt
     .replace(/</g, '&lt;').replace(/>/g, '&gt;') // 防 XSS
-    .replace(/==(.*?)==/g, `<mark class="${isDark ? 'bg-yellow-500/30 text-yellow-200' : 'bg-yellow-200 text-yellow-800'} px-1 mx-0.5 rounded">$1</mark>`)
-    .replace(/\*\*(.*?)\*\*/g, `<strong class="font-extrabold ${isDark ? 'text-teal-300' : 'text-teal-700'}">$1</strong>`);
+    .replace(/==(.*?)==/g, `<mark class="${themeConfig.highlight} px-1 mx-0.5 rounded">$1</mark>`)
+    .replace(/\*\*(.*?)\*\*/g, `<strong class="font-extrabold ${themeConfig.bold}">$1</strong>`);
   return html.replace(/\n/g, '<br/>');
 };
 
 // --- 智慧文字輸入框 (SmartTextarea) ---
-const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDark }) => {
+const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, themeConfig }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
 
@@ -94,17 +93,17 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
   if (isEditing) {
     return (
       <div className="relative group/editor w-full">
-        <div className={`absolute -top-8 right-0 flex gap-1 p-1 rounded shadow-md border opacity-0 group-hover/editor:opacity-100 transition-opacity z-10 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
+        <div className={`absolute -top-8 right-0 flex gap-1 p-1 rounded shadow-md border opacity-0 group-hover/editor:opacity-100 transition-opacity z-10 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('==', '=='); }}
-            className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${isDark ? 'hover:bg-stone-700 text-yellow-400' : 'hover:bg-stone-100 text-yellow-600'}`}
+            className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-yellow-600 dark:text-yellow-400`}
             title="反白文字後點擊，標記為重點"
           >
             <Highlighter size={12} className="mr-1"/> 重點
           </button>
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('**', '**'); }}
-            className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${isDark ? 'hover:bg-stone-700 text-teal-400' : 'hover:bg-stone-100 text-teal-600'}`}
+            className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-teal-600 dark:text-teal-400`}
             title="反白文字後點擊，標記為粗體"
           >
             <Bold size={12} className="mr-1"/> 粗體
@@ -127,7 +126,7 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
               setIsEditing(false);
             }
           }}
-          className={`${className} resize-none overflow-hidden outline-none block w-full`}
+          className={`${className} resize-none overflow-hidden outline-none block w-full bg-transparent`}
           placeholder={placeholder}
         />
       </div>
@@ -138,7 +137,7 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, isDar
     <div
       onClick={handleClick}
       className={`${className} cursor-text whitespace-pre-wrap block w-full ${value ? 'min-h-[1.5rem]' : 'min-h-[1rem]'}`}
-      dangerouslySetInnerHTML={{ __html: value ? formatRichText(value, isDark) : `<div class="opacity-0 hover:opacity-50 transition-opacity italic text-sm select-none py-0.5 ${isDark ? 'text-stone-500' : 'text-stone-400'}">點擊新增內容...</div>` }}
+      dangerouslySetInnerHTML={{ __html: value ? formatRichText(value, themeConfig) : `<div class="opacity-0 hover:opacity-50 transition-opacity italic text-sm select-none py-0.5 ${themeConfig.placeholder}">點擊新增內容...</div>` }}
     />
   );
 };
@@ -152,43 +151,66 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "children": []
 }];
 
-// --- AI 提示詞與模型設定 ---
+// --- AI 模型設定 ---
 const AI_MODELS = [
-  { label: 'Gemini 2.5 Flash (預設穩定)', value: 'gemini-2.5-flash' },
-  { label: 'Gemini 3.1 Flash (最新高效)', value: 'gemini-3.1-flash' },
-  { label: 'Gemini 3.1 Flash Lite (輕量快速)', value: 'gemini-3.1-flash-lite' },
-  { label: 'Gemini 1.5 Pro (進階推理)', value: 'gemini-1.5-pro' }
+  { label: 'Gemini 2.5 Flash (預設推薦)', value: 'gemini-2.5-flash' },
+  { label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' },
+  { label: 'Gemini 3.1 Flash Lite', value: 'gemini-3.1-flash-lite' },
+  { label: 'Gemini 3 Flash Preview', value: 'gemini-3-flash-preview' },
+  { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' }
 ];
 
 const AI_PROMPT_PRESETS = [
-  {
-    label: '預設：依意群適度拆分',
-    value: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`
-  },
-  {
-    label: '細緻：逐句/小段落詳細拆分',
-    value: `請將以下原文進行非常細緻的逐句或小段落拆分，適合深度研討。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "精煉標題", "content": "詳細內文段落", "note": "" } ]\n\n注意：只回傳 JSON 陣列，無多餘文字。`
-  },
-  {
-    label: '簡要：僅提煉核心骨架 (不保留全文)',
-    value: `請閱讀以下原文，僅提煉出最核心的科判大綱骨架，不需保留完整內文，將重點摘要放入 note 中。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "核心標題", "content": "", "note": "重點摘要" } ]\n\n注意：只回傳 JSON 陣列。`
-  }
+  { label: '預設：依意群適度拆分', value: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。` },
+  { label: '細緻：逐句/小段落詳細拆分', value: `請將以下原文進行非常細緻的逐句或小段落拆分，適合深度研討。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "精煉標題", "content": "詳細內文段落", "note": "" } ]\n\n注意：只回傳 JSON 陣列，無多餘文字。` },
+  { label: '簡要：僅提煉核心骨架', value: `請閱讀以下原文，僅提煉出最核心的科判大綱骨架，不需保留完整內文，將重點摘要放入 note 中。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "核心標題", "content": "", "note": "重點摘要" } ]\n\n注意：只回傳 JSON 陣列。` }
 ];
 
-// --- 主題設定 ---
+// --- 擴充主題系統 ---
 const THEMES = {
-  default: "bg-stone-50 text-stone-800",
-  beige: "bg-[#fdfbf7] text-[#5c4b3a]",
-  dark: "bg-[#1a1a1a] text-[#e0e0e0]",
-  bamboo: "bg-[#f0f4f0] text-[#2c3e2e]"
+  default: {
+    name: '石灰淨白',
+    bg: "bg-stone-50", text: "text-stone-800", headerBg: "bg-white", border: "border-stone-200",
+    depthColors: ['text-blue-900 border-blue-900', 'text-teal-800 border-teal-800', 'text-emerald-700 border-emerald-700', 'text-cyan-700 border-cyan-700'],
+    highlight: "bg-yellow-200 text-yellow-800", bold: "text-teal-700", panelBg: "bg-white", panelBorder: "border-stone-200", btnHover: "hover:bg-stone-100", placeholder: "text-stone-400",
+    textarea: "text-stone-800 hover:bg-stone-100/50 focus:bg-stone-100/50", outlineTextarea: "bg-stone-100/50 border-stone-200", noteBg: "bg-[#fffdf5] text-[#5c4b3a] border-amber-400"
+  },
+  beige: {
+    name: '貝葉經黃',
+    bg: "bg-[#fdfbf7]", text: "text-[#5c4b3a]", headerBg: "bg-[#f9f6ef]", border: "border-[#e8e2d2]",
+    depthColors: ['text-[#4a3f35] border-[#4a3f35]', 'text-[#6b5b4b] border-[#6b5b4b]', 'text-[#8b7762] border-[#8b7762]', 'text-[#a6927a] border-[#a6927a]'],
+    highlight: "bg-[#f0d8a8] text-[#5c4b3a]", bold: "text-[#8b5a2b]", panelBg: "bg-[#f9f6ef]", panelBorder: "border-[#e8e2d2]", btnHover: "hover:bg-[#e8e2d2]", placeholder: "text-[#a6927a]",
+    textarea: "text-[#5c4b3a] hover:bg-[#f4efe4] focus:bg-[#f4efe4]", outlineTextarea: "bg-[#f4efe4] border-[#e8e2d2]", noteBg: "bg-[#fcf8ed] text-[#5c4b3a] border-[#d4b886]"
+  },
+  parchment: {
+    name: '羊皮古卷',
+    bg: "bg-[#f4ebd8]", text: "text-[#4a3f35]", headerBg: "bg-[#eee2ca]", border: "border-[#d8cbb0]",
+    depthColors: ['text-[#3a3129] border-[#3a3129]', 'text-[#5a4d41] border-[#5a4d41]', 'text-[#796858] border-[#796858]', 'text-[#96826f] border-[#96826f]'],
+    highlight: "bg-[#e2c792] text-[#3a3129]", bold: "text-[#8a4a23]", panelBg: "bg-[#eee2ca]", panelBorder: "border-[#d8cbb0]", btnHover: "hover:bg-[#d8cbb0]", placeholder: "text-[#96826f]",
+    textarea: "text-[#4a3f35] hover:bg-[#e8ddc3] focus:bg-[#e8ddc3]", outlineTextarea: "bg-[#e8ddc3] border-[#d8cbb0]", noteBg: "bg-[#fbf4e6] text-[#4a3f35] border-[#c4a976]"
+  },
+  dark: {
+    name: '檀木沉黑',
+    bg: "bg-[#1a1a1a]", text: "text-[#e0e0e0]", headerBg: "bg-[#242424]", border: "border-[#333333]",
+    depthColors: ['text-blue-300 border-blue-300', 'text-teal-300 border-teal-300', 'text-emerald-300 border-emerald-300', 'text-cyan-300 border-cyan-300'],
+    highlight: "bg-yellow-500/30 text-yellow-200", bold: "text-teal-300", panelBg: "bg-[#2a2a2a]", panelBorder: "border-[#404040]", btnHover: "hover:bg-[#404040]", placeholder: "text-stone-500",
+    textarea: "text-[#e0e0e0] hover:bg-[#2a2a2a] focus:bg-[#2a2a2a]", outlineTextarea: "bg-[#242424] border-[#333333]", noteBg: "bg-[#2a2418] text-amber-100 border-amber-600/50"
+  },
+  midnight: {
+    name: '深海夜讀',
+    bg: "bg-[#0f172a]", text: "text-[#cbd5e1]", headerBg: "bg-[#1e293b]", border: "border-[#334155]",
+    depthColors: ['text-indigo-300 border-indigo-300', 'text-sky-300 border-sky-300', 'text-cyan-300 border-cyan-300', 'text-teal-300 border-teal-300'],
+    highlight: "bg-amber-500/30 text-amber-200", bold: "text-sky-300", panelBg: "bg-[#1e293b]", panelBorder: "border-[#334155]", btnHover: "hover:bg-[#334155]", placeholder: "text-slate-500",
+    textarea: "text-[#cbd5e1] hover:bg-[#1e293b]/80 focus:bg-[#1e293b]/80", outlineTextarea: "bg-[#1e293b]/50 border-[#334155]", noteBg: "bg-[#1e293b] text-indigo-100 border-indigo-500/50"
+  }
 };
 
 // --- 獨立的 TreeNode 元件 ---
 const TreeNode = React.memo(({ 
-  kepanNode, depth, mode, theme, userApiKey,
+  kepanNode, depth, mode, themeConfig,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId,
-  actions, showToast 
+  actions 
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
@@ -198,12 +220,7 @@ const TreeNode = React.memo(({
   const hasContent = kepanNode.content && kepanNode.content.trim().length > 0;
   const hasNote = kepanNode.note && kepanNode.note.trim().length > 0;
 
-  const isDark = theme === 'dark';
-  const depthColors = isDark 
-    ? ['text-blue-300 border-blue-300', 'text-teal-300 border-teal-300', 'text-emerald-300 border-emerald-300', 'text-cyan-300 border-cyan-300', 'text-indigo-300 border-indigo-300']
-    : ['text-blue-900 border-blue-900', 'text-teal-800 border-teal-800', 'text-emerald-700 border-emerald-700', 'text-cyan-700 border-cyan-700', 'text-blue-600 border-blue-600'];
-  const colorClass = depthColors[depth % depthColors.length];
-  
+  const colorClass = themeConfig.depthColors[depth % themeConfig.depthColors.length];
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
 
@@ -224,17 +241,12 @@ const TreeNode = React.memo(({
     }
   };
 
-  const handleAIAssistClick = (e) => {
-    e.stopPropagation();
-    actions.generateAISkeleton(kepanNode.id);
-  };
-
   const isDragged = dragInfo.draggedId === kepanNode.id;
   const isDragOver = dragInfo.overId === kepanNode.id;
   let dropZoneClass = 'border border-transparent';
-  if (isDragOver && dragInfo.position === 'top') dropZoneClass = 'border-t-2 border-t-teal-500 rounded-t';
-  if (isDragOver && dragInfo.position === 'bottom') dropZoneClass = 'border-b-2 border-b-teal-500 rounded-b';
-  if (isDragOver && dragInfo.position === 'inside') dropZoneClass = 'bg-teal-500/10 rounded ring-1 ring-teal-500/50';
+  if (isDragOver && dragInfo.position === 'top') dropZoneClass = `border-t-2 border-t-teal-500 rounded-t`;
+  if (isDragOver && dragInfo.position === 'bottom') dropZoneClass = `border-b-2 border-b-teal-500 rounded-b`;
+  if (isDragOver && dragInfo.position === 'inside') dropZoneClass = `bg-teal-500/10 rounded ring-1 ring-teal-500/50`;
 
   const handleNodeClick = () => {
     if (mode === 'split') {
@@ -248,7 +260,7 @@ const TreeNode = React.memo(({
   };
 
   const wrapperSpacingClass = mode === 'text' ? 'mb-0' : 'mb-2';
-  const paddingLeftClass = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${isDark ? 'border-stone-700' : 'border-stone-200'} pl-4` : 'ml-0';
+  const paddingLeftClass = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${themeConfig.border} pl-4` : 'ml-0';
 
   return (
     <div className={`
@@ -268,7 +280,7 @@ const TreeNode = React.memo(({
           <div 
             draggable
             onDragStart={(e) => actions.handleDragStart(e, kepanNode.id)}
-            className={`mt-1 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity ${isDark ? 'text-stone-500 hover:text-stone-300' : 'text-stone-300 hover:text-stone-500'}`}
+            className={`mt-1 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-stone-600`}
             title="按住拖曳以排序"
           >
             <GripVertical size={16} />
@@ -278,7 +290,7 @@ const TreeNode = React.memo(({
         {(mode === 'outline' || mode === 'split') && hasChildren ? (
           <button 
             onClick={(e) => { e.stopPropagation(); actions.toggleTree(kepanNode.id); }}
-            className={`mt-1 transition-colors shrink-0 ${isDark ? 'text-stone-500 hover:text-teal-400' : 'text-stone-400 hover:text-teal-600'}`}
+            className={`mt-1 transition-colors shrink-0 text-stone-400 hover:text-teal-600`}
           >
             {isTreeExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
           </button>
@@ -325,9 +337,9 @@ const TreeNode = React.memo(({
 
               {hasContent && mode !== 'split' && (
                 <button
-                  onClick={handleAIAssistClick}
+                  onClick={(e) => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }}
                   disabled={isAILoadingId === kepanNode.id}
-                  className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-400 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`}
+                  className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-500 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`}
                   title="AI 輔助骨架生成"
                 >
                   <Wand2 size={14} />
@@ -335,7 +347,7 @@ const TreeNode = React.memo(({
               )}
 
               <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ${mode === 'split' ? 'hidden' : ''}`}>
-                <button onClick={(e) => { e.stopPropagation(); actions.setFocusId(kepanNode.id); }} className="p-1 text-stone-400 hover:text-teal-500 hover:bg-teal-500/20 rounded" title="聚焦此節點">
+                <button onClick={(e) => { e.stopPropagation(); actions.setFocusId(kepanNode.id); }} className="p-1 text-stone-400 hover:text-teal-600 hover:bg-teal-500/20 rounded" title="聚焦此節點">
                   <Target size={14} />
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); actions.setDeleteMenuId(deleteMenuId === kepanNode.id ? null : kepanNode.id); }} className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-500/20 rounded" title="刪除選單">
@@ -346,15 +358,15 @@ const TreeNode = React.memo(({
           </div>
 
           {deleteMenuId === kepanNode.id && (
-            <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
-              <span className={`font-medium ml-1 ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>刪除選項：</span>
+            <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
+              <span className={`font-medium ml-1 ${themeConfig.text}`}>刪除選項：</span>
               <button onClick={() => actions.mergeUpKepanNode(kepanNode.id)} className="px-3 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 rounded transition-colors" title="刪除此標題，內文與子節點併入上一段">
                 向上合併
               </button>
               <button onClick={() => actions.deleteKepanNode(kepanNode.id)} className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-500 rounded transition-colors" title="徹底刪除此標題與其下所有內容">
                 刪除全部
               </button>
-              <button onClick={() => actions.setDeleteMenuId(null)} className={`px-3 py-1 rounded transition-colors ${isDark ? 'bg-stone-700 hover:bg-stone-600 text-stone-300' : 'bg-stone-100 hover:bg-stone-200 text-stone-600'}`}>
+              <button onClick={() => actions.setDeleteMenuId(null)} className={`px-3 py-1 rounded transition-colors ${themeConfig.btnHover} ${themeConfig.text}`}>
                 取消
               </button>
             </div>
@@ -373,10 +385,10 @@ const TreeNode = React.memo(({
                   }
                 }}
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
-                isDark={isDark}
+                themeConfig={themeConfig}
                 className={`
-                  w-full bg-transparent transition-all
-                  ${mode === 'outline' ? `text-sm p-2 rounded border ${isDark ? 'text-stone-400 bg-stone-800/50 border-stone-700' : 'text-stone-500 bg-stone-50/50 border-stone-100'}` : `text-base leading-[1.8] py-1 rounded ${isDark ? 'text-stone-300 hover:bg-stone-800/30 focus:bg-stone-800/30' : 'text-stone-800 hover:bg-stone-50/50 focus:bg-stone-50/50'}`}
+                  w-full transition-all
+                  ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}
                 `}
               />
               
@@ -394,15 +406,15 @@ const TreeNode = React.memo(({
           )}
 
           {isNoteVisible && (
-            <div className={`mb-2 mt-2 p-3 rounded-lg border-l-4 border-amber-400 shadow-sm relative w-full ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
-              <div className="flex items-center gap-2 mb-1 text-xs font-bold text-amber-600/70 uppercase tracking-widest">
+            <div className={`mb-2 mt-2 p-3 rounded-lg border-l-4 shadow-sm relative w-full ${themeConfig.noteBg}`}>
+              <div className="flex items-center gap-2 mb-1 text-xs font-bold opacity-70 uppercase tracking-widest">
                 <Leaf size={12} /> Dharma Journaling
               </div>
               <SmartTextarea
                 value={kepanNode.note || ''}
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'note', val)}
                 placeholder="在此記錄您的修行觀察、心相調伏或疑問 (支援浮動工具列)..."
-                isDark={isDark}
+                themeConfig={themeConfig}
                 className="w-full bg-transparent text-sm leading-relaxed"
               />
             </div>
@@ -415,9 +427,9 @@ const TreeNode = React.memo(({
         <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
-              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} theme={theme} userApiKey={userApiKey}
+              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
+              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} 
             />
           ))}
         </div>
@@ -440,24 +452,26 @@ export default function App() {
   const kepanTree = historyState.present;
 
   const [mode, setMode] = useState('text'); 
-  const [theme, setTheme] = useState('default');
+  const [themeKey, setThemeKey] = useState(() => localStorage.getItem('outline_theme') || 'default');
   const [focusId, setFocusId] = useState(null); 
   const [expandedTreeNodes, setExpandedTreeNodes] = useState(new Set(['root-1']));
   const [expandedContentNodes, setExpandedContentNodes] = useState(new Set());
   const [expandedNoteNodes, setExpandedNoteNodes] = useState(new Set());
   const [deleteMenuId, setDeleteMenuId] = useState(null);
   const [dragInfo, setDragInfo] = useState({ draggedId: null, overId: null, position: null });
-  
-  // 麵包屑探索下拉選單狀態
   const [activeBreadcrumbDropdown, setActiveBreadcrumbDropdown] = useState(null);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
 
+  // Settings
   const [showSettings, setShowSettings] = useState(false);
   const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
   const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-2.5-flash');
+  const [customApiModel, setCustomApiModel] = useState(() => localStorage.getItem('outline_custom_model') || '');
   const [aiPrompt, setAiPrompt] = useState(() => localStorage.getItem('outline_ai_prompt') || AI_PROMPT_PRESETS[0].value);
   const [isAILoadingId, setIsAILoadingId] = useState(null);
-  
   const [toastMessage, setToastMessage] = useState(null);
+
+  const themeConfig = THEMES[themeKey] || THEMES.default;
 
   const showToast = useCallback((msg, duration = 5000) => {
     setToastMessage(msg);
@@ -467,8 +481,9 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem('outline_editor_autosave_v3', JSON.stringify(kepanTree));
+      localStorage.setItem('outline_theme', themeKey);
     } catch (error) {}
-  }, [kepanTree]);
+  }, [kepanTree, themeKey]);
 
   const commitChange = useCallback((updaterOrTree) => {
     setHistoryState(prevState => {
@@ -529,22 +544,6 @@ export default function App() {
       return next;
     });
   }, []);
-
-  const toggleAllContent = (show) => {
-    if (!show) {
-      setExpandedContentNodes(new Set());
-      return;
-    }
-    const allContentIds = new Set();
-    const traverse = (nodes) => {
-      nodes.forEach(node => {
-        if (node.content && node.content.trim().length > 0) allContentIds.add(node.id);
-        if (node.children) traverse(node.children);
-      });
-    };
-    traverse(kepanTree);
-    setExpandedContentNodes(allContentIds);
-  };
 
   const updateKepanNode = useCallback((id, field, value) => {
     commitChange(currentTree => {
@@ -861,17 +860,21 @@ export default function App() {
     }
   }, [dragInfo, commitChange]);
 
+  // --- 核心破局：多 API Keys 輪詢與自訂模型機制 ---
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
     
-    const actualKey = userApiKey.trim();
-    if (!actualKey) {
-      showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
+    // 解析使用者輸入的多個 Key
+    const keyList = userApiKey.split(',').map(k => k.trim()).filter(Boolean);
+    
+    if (keyList.length === 0) {
+      showToast("請先至右上角「設定」輸入至少一組 Google Gemini API 金鑰。");
       return;
     }
     
     setIsAILoadingId(nodeId);
+    const finalModel = userApiModel === 'custom' ? customApiModel : userApiModel;
 
     const payload = {
       contents: [{ parts: [{ text: `原文內容：\n${targetNode.content}` }] }],
@@ -879,64 +882,82 @@ export default function App() {
       generationConfig: { responseMimeType: "application/json" }
     };
 
-    let attempt = 0;
-    const maxAttempts = 2; 
     let success = false;
+    let lastErrorMsg = "";
 
-    while (attempt < maxAttempts) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${userApiModel}:generateContent?key=${actualKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+    // 輪流測試每一組金鑰
+    for (const currentKey of keyList) {
+      if (success) break;
+      
+      let attempt = 0;
+      const maxAttempts = 2; // 每個金鑰允許重試次數
 
-        if (!response.ok) {
-          const errorTxt = await response.text();
-          throw new Error(`API 錯誤 (${response.status}): ${errorTxt.substring(0, 100)}`);
-        }
-        
-        const result = await response.json();
-        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (textResult) {
-          textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
-          const generatedNodes = JSON.parse(textResult);
-          
-          commitChange(currentTree => {
-            const clonedTree = deepCloneKepanTree(currentTree);
-            const tNode = findNodeInKepanTree(clonedTree, nodeId);
-            if (tNode) {
-              tNode.content = ""; 
-              const newAiNodes = generatedNodes.map(n => ({
-                id: generateUniqueId(),
-                title: n.title || "新科判",
-                content: n.content || "",
-                note: n.note || "",
-                children: []
-              }));
-              tNode.children = [...newAiNodes, ...(tNode.children || [])];
-              
-              setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-              return clonedTree;
-            }
-            return currentTree;
+      while (attempt < maxAttempts) {
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${finalModel}:generateContent?key=${currentKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
           });
+
+          if (!response.ok) {
+            const errorJson = await response.json();
+            // 如果遇到 429 錯誤，直接拋出並中斷當前金鑰的嘗試迴圈，換下一把金鑰
+            if (response.status === 429) {
+                throw new Error("429 Quota Exceeded");
+            }
+            throw new Error(errorJson.error?.message || `HTTP 錯誤 ${response.status}`);
+          }
           
-          success = true;
-          showToast("AI 拆分完成！");
-          break; 
-        } else {
-          throw new Error("回傳結果為空");
-        }
-      } catch (error) {
-        attempt++;
-        if (attempt === maxAttempts) {
-           showToast(`AI 生成失敗。原因: ${error.message}`);
-        } else {
-           await new Promise(resolve => setTimeout(resolve, 2000));
+          const result = await response.json();
+          let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (textResult) {
+            textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const generatedNodes = JSON.parse(textResult);
+            
+            commitChange(currentTree => {
+              const clonedTree = deepCloneKepanTree(currentTree);
+              const tNode = findNodeInKepanTree(clonedTree, nodeId);
+              if (tNode) {
+                tNode.content = ""; 
+                const newAiNodes = generatedNodes.map(n => ({
+                  id: generateUniqueId(),
+                  title: n.title || "新科判",
+                  content: n.content || "",
+                  note: n.note || "",
+                  children: []
+                }));
+                tNode.children = [...newAiNodes, ...(tNode.children || [])];
+                
+                setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+                return clonedTree;
+              }
+              return currentTree;
+            });
+            
+            success = true;
+            showToast("AI 拆分完成！");
+            break; // 成功，完全跳出迴圈
+          } else {
+            throw new Error("模型回傳結果為空");
+          }
+        } catch (error) {
+          lastErrorMsg = error.message;
+          // 若為 429 配額用盡，不需 delay 重試，直接跳出 inner while 讓外層切換下一把金鑰
+          if (error.message.includes("429")) {
+              break; 
+          }
+          attempt++;
+          if (attempt < maxAttempts) {
+             await new Promise(resolve => setTimeout(resolve, 1500));
+          }
         }
       }
+    }
+    
+    if (!success) {
+      showToast(`AI 生成失敗。原因: ${lastErrorMsg.substring(0, 80)}... 已嘗試所有金鑰。`, 8000);
     }
     
     setIsAILoadingId(null);
@@ -1000,6 +1021,7 @@ export default function App() {
   const saveSettings = () => {
     localStorage.setItem('outline_api_key', userApiKey);
     localStorage.setItem('outline_api_model', userApiModel);
+    localStorage.setItem('outline_custom_model', customApiModel);
     localStorage.setItem('outline_ai_prompt', aiPrompt);
     setShowSettings(false);
     showToast("設定已儲存");
@@ -1007,23 +1029,23 @@ export default function App() {
 
   const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : kepanTree;
   const currentBreadcrumbPath = focusId ? findPathInKepanTree(kepanTree, focusId) : null;
-  const isDark = theme === 'dark';
+  const isDark = themeKey === 'dark' || themeKey === 'midnight';
 
   const renderContinuousSplitText = (nodes) => {
     return nodes.map(node => (
       <div key={`split-${node.id}`} id={`split-content-${node.id}`} className="mb-6 group transition-colors duration-500 rounded p-2">
-        <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-teal-400' : 'text-teal-700'}`}>{node.title}</h3>
+        <h3 className={`font-bold text-lg mb-2 ${themeConfig.bold}`}>{node.title}</h3>
         {node.content && (
-           <div className={`leading-relaxed whitespace-pre-wrap ${isDark ? 'text-stone-300' : 'text-stone-800'}`} dangerouslySetInnerHTML={{ __html: formatRichText(node.content, isDark) }} />
+           <div className={`leading-relaxed whitespace-pre-wrap ${themeConfig.text}`} dangerouslySetInnerHTML={{ __html: formatRichText(node.content, themeConfig) }} />
         )}
         {node.note && (
-          <div className={`mt-2 p-3 text-sm rounded-lg border-l-4 border-amber-400 ${isDark ? 'bg-[#2a2418] text-amber-100' : 'bg-[#fffdf5] text-[#5c4b3a]'}`}>
-            <div className="font-bold text-amber-600/70 mb-1 flex items-center gap-1"><Leaf size={12}/> 札記</div>
-            <div dangerouslySetInnerHTML={{ __html: formatRichText(node.note, isDark) }} />
+          <div className={`mt-2 p-3 text-sm rounded-lg border-l-4 shadow-sm ${themeConfig.noteBg}`}>
+            <div className="font-bold opacity-70 mb-1 flex items-center gap-1"><Leaf size={12}/> 札記</div>
+            <div dangerouslySetInnerHTML={{ __html: formatRichText(node.note, themeConfig) }} />
           </div>
         )}
         {node.children && node.children.length > 0 && (
-          <div className={`mt-4 pl-4 border-l-2 ${isDark ? 'border-stone-800' : 'border-stone-100'}`}>
+          <div className={`mt-4 pl-4 border-l-2 ${themeConfig.border}`}>
             {renderContinuousSplitText(node.children)}
           </div>
         )}
@@ -1036,12 +1058,12 @@ export default function App() {
       <div className="flex flex-col gap-2">
         {nodes.map(node => (
           <div key={`map-${node.id}`} className="flex flex-col">
-            <div className={`py-1 px-2 rounded font-medium flex items-center gap-2 ${isDark ? 'bg-stone-800 text-teal-300' : 'bg-teal-50 text-teal-800'}`}>
-              <div className={`w-2 h-2 rounded-full ${isDark ? 'bg-teal-500' : 'bg-teal-600'}`}></div>
+            <div className={`py-1 px-2 rounded font-medium flex items-center gap-2 ${themeConfig.panelBg} ${themeConfig.bold}`}>
+              <div className={`w-2 h-2 rounded-full ${themeConfig.bold.split(' ')[0].replace('text-', 'bg-')}`}></div>
               {node.title || '(未命名節點)'}
             </div>
             {node.children && node.children.length > 0 && (
-              <div className={`ml-4 pl-4 border-l ${isDark ? 'border-stone-700' : 'border-stone-200'} mt-2`}>
+              <div className={`ml-4 pl-4 border-l ${themeConfig.border} mt-2`}>
                 {renderMacroMap(node.children)}
               </div>
             )}
@@ -1052,7 +1074,7 @@ export default function App() {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${THEMES[theme]}`}>
+    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`}>
       
       {/* Toast Notification */}
       {toastMessage && (
@@ -1063,24 +1085,24 @@ export default function App() {
       )}
 
       {/* Header 工具列 */}
-      <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-200'}`}>
+      <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${themeConfig.headerBg} ${themeConfig.border}`}>
         <div className="flex items-center gap-4">
-          <h1 className={`text-xl font-bold flex items-center gap-2 ${isDark ? 'text-stone-100' : 'text-stone-800'}`}>
-            <ListTree className="text-teal-600" />
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <ListTree className={themeConfig.bold.split(' ')[0]} />
             聞思科判編輯器
           </h1>
           
-          <div className={`flex rounded-lg p-1 border gap-1 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-stone-100 border-stone-200'}`}>
-            <button onClick={() => setMode('text')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'text' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="原文模式">
+          <div className={`flex rounded-lg p-1 border gap-1 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
+            <button onClick={() => setMode('text')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'text' ? (isDark ? 'bg-stone-700 text-teal-300 shadow' : 'bg-white shadow text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`} title="原文模式">
               <BookText size={16} /> <span className="hidden sm:inline">原文模式</span>
             </button>
-            <button onClick={() => setMode('outline')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'outline' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="科判模式">
+            <button onClick={() => setMode('outline')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'outline' ? (isDark ? 'bg-stone-700 text-teal-300 shadow' : 'bg-white shadow text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`} title="科判模式">
               <ListTree size={16} /> <span className="hidden sm:inline">科判模式</span>
             </button>
-            <button onClick={() => setMode('split')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'split' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="對讀連動模式">
+            <button onClick={() => setMode('split')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'split' ? (isDark ? 'bg-stone-700 text-teal-300 shadow' : 'bg-white shadow text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`} title="對讀連動模式">
               <Columns size={16} /> <span className="hidden sm:inline">對讀模式</span>
             </button>
-            <button onClick={() => setMode('map')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'map' ? (isDark ? 'bg-stone-700 text-teal-300' : 'bg-white shadow text-teal-700') : 'text-stone-400 hover:text-stone-300'}`} title="總體骨架鳥瞰圖">
+            <button onClick={() => setMode('map')} className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${mode === 'map' ? (isDark ? 'bg-stone-700 text-teal-300 shadow' : 'bg-white shadow text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`} title="總體骨架鳥瞰圖">
               <Map size={16} /> <span className="hidden sm:inline">鳥瞰模式</span>
             </button>
           </div>
@@ -1088,29 +1110,45 @@ export default function App() {
 
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-1">
-            <button onClick={handleUndo} disabled={historyState.past.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.past.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="復原 (Ctrl+Z)"><Undo2 size={18}/></button>
-            <button onClick={handleRedo} disabled={historyState.future.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.future.length === 0 ? 'opacity-30 cursor-not-allowed' : 'hover:bg-teal-500/20 text-teal-600'}`} title="重做 (Ctrl+Y)"><Redo2 size={18}/></button>
+            <button onClick={handleUndo} disabled={historyState.past.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.past.length === 0 ? 'opacity-30 cursor-not-allowed' : `${themeConfig.btnHover} ${themeConfig.bold}`}`} title="復原 (Ctrl+Z)"><Undo2 size={18}/></button>
+            <button onClick={handleRedo} disabled={historyState.future.length === 0} className={`p-1.5 rounded-md transition-colors ${historyState.future.length === 0 ? 'opacity-30 cursor-not-allowed' : `${themeConfig.btnHover} ${themeConfig.bold}`}`} title="重做 (Ctrl+Y)"><Redo2 size={18}/></button>
           </div>
 
-          <div className={`w-px h-4 mx-1 ${isDark ? 'bg-stone-700' : 'bg-stone-300'}`}></div>
+          <div className={`w-px h-4 mx-1 ${themeConfig.border}`}></div>
 
-          <button onClick={() => setTheme(theme === 'default' ? 'beige' : theme === 'beige' ? 'dark' : theme === 'dark' ? 'bamboo' : 'default')} className={`p-1.5 rounded-full hover:bg-stone-500/20 transition-colors ${isDark ? 'text-yellow-400' : 'text-stone-500'}`} title="切換禪風主題">
-            {theme === 'dark' ? <Moon size={18}/> : theme === 'bamboo' ? <Leaf size={18}/> : <Sun size={18}/>}
-          </button>
+          {/* 主題下拉選單 */}
+          <div className="relative">
+             <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-1.5 rounded-md flex items-center gap-1 opacity-80 ${themeConfig.btnHover} transition-colors`} title="切換沉浸主題">
+               <Palette size={18}/>
+             </button>
+             {isThemeMenuOpen && (
+               <div className={`absolute top-full right-0 mt-2 w-36 rounded-md shadow-xl border z-50 overflow-hidden ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
+                  {Object.entries(THEMES).map(([key, theme]) => (
+                    <button 
+                      key={key} 
+                      onClick={() => { setThemeKey(key); setIsThemeMenuOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${themeKey === key ? theme.bold : theme.text} ${theme.btnHover}`}
+                    >
+                      {theme.name}
+                    </button>
+                  ))}
+               </div>
+             )}
+          </div>
           
-          <button onClick={() => setShowSettings(true)} className="p-1.5 rounded-full hover:bg-stone-500/20 text-stone-500 transition-colors" title="設定"><Settings size={18}/></button>
+          <button onClick={() => setShowSettings(true)} className={`p-1.5 rounded-md opacity-80 ${themeConfig.btnHover} transition-colors`} title="設定"><Settings size={18}/></button>
 
-          <div className={`w-px h-4 mx-1 ${isDark ? 'bg-stone-700' : 'bg-stone-300'}`}></div>
+          <div className={`w-px h-4 mx-1 ${themeConfig.border}`}></div>
 
-          <button onClick={handleNewFile} className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`} title="建立新檔案">
+          <button onClick={handleNewFile} className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${themeConfig.panelBg} ${themeConfig.panelBorder} ${themeConfig.btnHover}`} title="建立新檔案">
             <FilePlus size={16} /> <span className="hidden sm:inline">開新檔</span>
           </button>
 
-          <label className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${isDark ? 'bg-stone-800 border-stone-700 hover:bg-stone-700 text-stone-300' : 'bg-white border-stone-300 hover:bg-stone-50 text-stone-600'}`} title="匯入本地 JSON">
+          <label className={`flex items-center gap-1 px-3 py-1.5 text-sm font-medium border rounded shadow-sm cursor-pointer transition-colors ${themeConfig.panelBg} ${themeConfig.panelBorder} ${themeConfig.btnHover}`} title="匯入本地 JSON">
             <FolderOpen size={16} /> <span className="hidden sm:inline">開啟</span>
             <input type="file" accept=".json" onChange={handleImportFromFile} className="hidden" />
           </label>
-          <button onClick={handleExportToFile} className="flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white bg-teal-600 rounded shadow-sm hover:bg-teal-700 transition-colors" title="匯出為 JSON">
+          <button onClick={handleExportToFile} className={`flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white rounded shadow-sm transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`} title="匯出為 JSON">
             <Save size={16} /> <span className="hidden sm:inline">存檔</span>
           </button>
         </div>
@@ -1118,29 +1156,29 @@ export default function App() {
 
       {/* 設定面板 Modal */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${isDark ? 'bg-stone-900 text-stone-200' : 'bg-white text-stone-800'}`}>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border`}>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold flex items-center gap-2"><Settings size={20} className="text-stone-500"/> 偏好與 AI 設定</h2>
-              <button onClick={() => setShowSettings(false)} className="hover:bg-stone-500/20 p-1 rounded-full"><X size={20}/></button>
+              <h2 className="text-xl font-bold flex items-center gap-2"><Settings size={20} className="opacity-60"/> 偏好與 AI 設定</h2>
+              <button onClick={() => setShowSettings(false)} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
             </div>
             
+            <div className="mb-6">
+              <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1"/> Google Gemini API Key (支援多組金鑰)</label>
+              <textarea 
+                value={userApiKey} 
+                onChange={(e) => setUserApiKey(e.target.value)}
+                placeholder="輸入您的 API 金鑰。若有多組，請用逗號 (,) 分隔以啟用輪替機制避開限制。"
+                rows={2}
+                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
+              />
+            </div>
+
             <div className="mb-6 flex gap-4">
               <div className="flex-1">
-                <label className="block text-sm font-bold mb-2 text-teal-600"><Wand2 size={16} className="inline mr-1"/> Google Gemini API Key</label>
-                <input 
-                  type="password" 
-                  value={userApiKey} 
-                  onChange={(e) => setUserApiKey(e.target.value)}
-                  placeholder="請輸入您的 API 金鑰 (必填)"
-                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200'}`}
-                />
-                <p className={`text-xs mt-2 ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>嚴格金鑰驗證：必須輸入有效的 API Key 才能呼叫模型。</p>
-              </div>
-              <div className="w-1/3">
-                <label className="block text-sm font-bold mb-2 text-teal-600">指定模型</label>
+                <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>指定模型</label>
                 <select 
-                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200 text-stone-800'}`}
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
                   onChange={(e) => setUserApiModel(e.target.value)}
                   value={userApiModel}
                 >
@@ -1149,12 +1187,25 @@ export default function App() {
                   ))}
                 </select>
               </div>
+              
+              {userApiModel === 'custom' && (
+                <div className="flex-1 animate-in fade-in">
+                  <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
+                  <input 
+                    type="text" 
+                    value={customApiModel} 
+                    onChange={(e) => setCustomApiModel(e.target.value)}
+                    placeholder="如: gemini-4-flash"
+                    className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mb-6">
-              <label className="block text-sm font-bold mb-2 text-teal-600"><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
+              <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
               <select 
-                className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm ${isDark ? 'bg-stone-800 border-stone-700 text-white' : 'bg-stone-50 border-stone-200 text-stone-800'}`}
+                className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 value={AI_PROMPT_PRESETS.find(p => p.value === aiPrompt) ? aiPrompt : "custom"}
               >
@@ -1167,12 +1218,12 @@ export default function App() {
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 rows={6}
-                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm font-mono ${isDark ? 'bg-stone-800 border-stone-700 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-600'}`}
+                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
               />
             </div>
 
             <div className="flex justify-end">
-              <button onClick={saveSettings} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded font-medium transition-colors">確認並儲存</button>
+              <button onClick={saveSettings} className={`px-6 py-2 text-white rounded font-medium transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`}>確認並儲存</button>
             </div>
           </div>
         </div>
@@ -1180,8 +1231,8 @@ export default function App() {
 
       {/* Breadcrumbs - 加入下拉選單機制 */}
       {focusId && currentBreadcrumbPath && (
-        <div className={`border-b px-6 py-2 flex flex-wrap items-center gap-2 text-sm sticky top-[60px] z-10 ${isDark ? 'bg-[#121c1a] border-teal-900/50 text-teal-400' : 'bg-teal-50 border-teal-100 text-teal-800'}`}>
-          <button onClick={() => setFocusId(null)} className="hover:text-teal-600 flex items-center gap-1 font-medium bg-teal-500/10 px-2 py-1 rounded">
+        <div className={`border-b px-6 py-2 flex flex-wrap items-center gap-2 text-sm sticky top-[60px] z-10 ${themeConfig.panelBg} ${themeConfig.border}`}>
+          <button onClick={() => setFocusId(null)} className={`hover:opacity-80 flex items-center gap-1 font-medium ${themeConfig.highlight} bg-opacity-30 px-2 py-1 rounded`}>
             <Home size={14} /> 根目錄
           </button>
           {currentBreadcrumbPath.map((crumb, idx) => {
@@ -1189,29 +1240,28 @@ export default function App() {
             const isDropdownOpen = activeBreadcrumbDropdown === crumb.id;
             return (
               <React.Fragment key={crumb.id}>
-                <ChevronRight size={14} className="text-teal-500/50 mx-1" />
-                <div className="relative flex items-center bg-teal-500/10 rounded">
+                <ChevronRight size={14} className="opacity-40 mx-1" />
+                <div className={`relative flex items-center rounded ${themeConfig.highlight} bg-opacity-20`}>
                   <button 
                     onClick={() => setFocusId(crumb.id)} 
-                    className={`hover:text-teal-500 px-2 py-1 transition-colors rounded-l ${idx === currentBreadcrumbPath.length - 1 ? 'font-bold bg-teal-500/20' : ''}`}
+                    className={`hover:opacity-80 px-2 py-1 transition-colors rounded-l ${idx === currentBreadcrumbPath.length - 1 ? `font-bold bg-opacity-40 ${themeConfig.highlight}` : ''}`}
                   >
                     {crumb.title || '(無標題)'}
                   </button>
                   {dropdownOptions.length > 0 && (
                     <button
-                      className={`p-1 px-1.5 rounded-r transition-colors ${isDark ? 'hover:bg-stone-700 text-stone-400' : 'hover:bg-teal-200 text-teal-600'}`}
+                      className={`p-1 px-1.5 rounded-r transition-colors opacity-70 hover:opacity-100`}
                       onClick={(e) => { e.stopPropagation(); setActiveBreadcrumbDropdown(isDropdownOpen ? null : crumb.id); }}
-                      title="顯示子層節點"
                     >
                       <ChevronDown size={14} />
                     </button>
                   )}
                   {isDropdownOpen && dropdownOptions.length > 0 && (
-                    <div className={`absolute top-full left-0 mt-1 min-w-[200px] rounded-md shadow-lg border py-1 z-50 ${isDark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'}`}>
+                    <div className={`absolute top-full left-0 mt-1 min-w-[200px] rounded-md shadow-lg border py-1 z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
                       {dropdownOptions.map(opt => (
                         <button
                           key={opt.id}
-                          className={`w-full text-left px-4 py-2 text-sm truncate transition-colors ${isDark ? 'text-stone-300 hover:bg-stone-700 hover:text-teal-300' : 'text-stone-700 hover:bg-teal-50 hover:text-teal-700'}`}
+                          className={`w-full text-left px-4 py-2 text-sm truncate transition-colors ${themeConfig.btnHover} ${themeConfig.bold}`}
                           onClick={(e) => { e.stopPropagation(); setFocusId(opt.id); setActiveBreadcrumbDropdown(null); }}
                         >
                           {opt.title || '(無標題)'}
@@ -1227,32 +1277,32 @@ export default function App() {
       )}
 
       {/* Editor Main */}
-      <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => setActiveBreadcrumbDropdown(null)}>
+      <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => { setActiveBreadcrumbDropdown(null); setIsThemeMenuOpen(false); }}>
         {mode === 'map' ? (
-           <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
-             <h2 className={`text-2xl font-bold mb-8 text-center tracking-widest ${isDark ? 'text-stone-300' : 'text-stone-600'}`}>總體骨架鳥瞰圖</h2>
+           <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
+             <h2 className={`text-2xl font-bold mb-8 text-center tracking-widest ${themeConfig.bold}`}>總體骨架鳥瞰圖</h2>
              {renderMacroMap(currentRenderData)}
            </div>
         ) : mode === 'split' ? (
            <div className="w-full max-w-7xl flex gap-6 h-[80vh]">
-             <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
+             <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
                 {currentRenderData.map(rootNode => (
                   <TreeNode 
-                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme} userApiKey={userApiKey}
+                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
                     expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
                     deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
                   />
                 ))}
              </div>
-             <div className={`w-2/3 overflow-y-auto p-8 rounded-lg shadow-sm border ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
+             <div className={`w-2/3 overflow-y-auto p-8 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
                 {renderContinuousSplitText(currentRenderData)}
              </div>
            </div>
         ) : (
-          <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${isDark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
+          <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
             {currentRenderData.map(rootNode => (
               <TreeNode 
-                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} theme={theme} userApiKey={userApiKey}
+                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
                 expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
                 deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
               />
