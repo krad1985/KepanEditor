@@ -1,4 +1,4 @@
-// Version: 4.1.0 - 徹底拔除 Firebase 雲端同步以優化效能與免除干擾，並新增全域字型切換功能
+// Version: 4.2.0 - 新增圓體與手寫字型、加入 AI 處理全螢幕等待動畫、擴充消文對話框寬度並導入上下文脈絡感知
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -8,14 +8,32 @@ import {
   X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette,
   DownloadCloud, Image as ImageIcon, Sparkles, Send, Copy, Download, Type
 } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// --- 環境變數設定 ---
 const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
 
-// --- 工具函數 ---
+/**
+ * 產生唯一 ID
+ * @returns {string} 
+ */
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
+
+/**
+ * 深度複製科判樹
+ * @param {Array} treeNodes 
+ * @returns {Array}
+ */
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
+/**
+ * 尋找節點路徑
+ * @param {Array} treeNodes 
+ * @param {string} targetNodeId 
+ * @param {Array} currentPath 
+ * @returns {Array|null}
+ */
 const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   for (let kepanNode of treeNodes) {
     const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title, children: kepanNode.children }];
@@ -28,6 +46,12 @@ const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   return null;
 };
 
+/**
+ * 尋找特定節點
+ * @param {Array} treeNodes 
+ * @param {string} targetNodeId 
+ * @returns {Object|null}
+ */
 const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   for (let kepanNode of treeNodes) {
     if (kepanNode.id === targetNodeId) return kepanNode;
@@ -39,6 +63,12 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   return null;
 };
 
+/**
+ * 轉換科判為 Markdown
+ * @param {Array} nodes 
+ * @param {number} level 
+ * @returns {string}
+ */
 const convertToMarkdown = (nodes, level = 0) => {
   let md = "";
   nodes.forEach(node => {
@@ -66,7 +96,6 @@ const formatRichText = (txt, themeConfig) => {
   return html.replace(/\n/g, '<br/>');
 };
 
-// --- 智慧文字輸入框 (SmartTextarea) ---
 const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, className, themeConfig, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
@@ -108,10 +137,10 @@ const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, class
     const end = textareaRef.current.selectionEnd;
     const currentVal = value || '';
     const selected = currentVal.substring(start, end).trim();
-    if (selected) onExplain(selected);
+    if (selected) onExplain(selected, currentVal); // 傳遞選擇文字與完整上下文
   };
 
-  const handleClick = (e) => {
+  const handleClick = () => {
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) return;
     setIsEditing(true);
@@ -176,7 +205,6 @@ const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, class
   );
 };
 
-// --- 常數與設定 ---
 const INITIAL_EMPTY_KEPAN_TREE = [{
   "id": "root-1",
   "title": "新科判",
@@ -203,13 +231,17 @@ const AI_MODELS = [
 ];
 
 const FONT_OPTIONS = [
-  { label: '現代無襯線 (系統預設)', value: 'font-sans' },
+  { label: '現代黑體 (System Sans)', value: 'font-sans' },
+  { label: '溫潤圓體 (Rounded)', value: 'font-round' },
+  { label: '自然手寫 (Handwriting)', value: 'font-hand' },
   { label: '傳統明體 (Serif)', value: 'font-serif' },
   { label: '典雅楷體 (Kai)', value: 'font-kai' }
 ];
 
 const FONT_STYLES = {
   'font-sans': 'ui-sans-serif, system-ui, sans-serif',
+  'font-round': '"Varela Round", "Nunito", "Arial Rounded MT Bold", "PingFang TC", "Hiragino Sans GB", "Microsoft JhengHei", sans-serif',
+  'font-hand': '"Klee One", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", "Hannotate TC", cursive',
   'font-serif': '"Noto Serif TC", "PMingLiU", "MingLiU", serif',
   'font-kai': '"DFKai-SB", "BiauKai", "Kaiti TC", "KaiTi", serif'
 };
@@ -258,12 +290,11 @@ const THEMES = {
   }
 };
 
-// --- 獨立的 TreeNode 元件 ---
 const TreeNode = React.memo(({ 
-  kepanNode, depth, mode, themeConfig, apiKeys,
+  kepanNode, depth, mode, themeConfig,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId,
-  actions, showToast 
+  actions 
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
@@ -445,7 +476,7 @@ const TreeNode = React.memo(({
                   if (isShift) actions.splitTextToChildKepanNode(kepanNode.id, cursorStart, currentText);
                   else actions.splitTextToSiblingKepanNode(kepanNode.id, cursorStart, currentText);
                 }}
-                onExplain={(text) => actions.explainText(text)}
+                onExplain={(text, context) => actions.explainText(text, context)}
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 themeConfig={themeConfig}
                 isDark={isDark}
@@ -490,7 +521,7 @@ const TreeNode = React.memo(({
         <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
-              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
+              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} 
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
               deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
             />
@@ -501,9 +532,7 @@ const TreeNode = React.memo(({
   );
 });
 
-// --- 主應用程式 ---
 export default function App() {
-  // 本地儲存資料載入
   const [historyState, setHistoryState] = useState(() => {
     try {
       const savedTree = localStorage.getItem('outline_editor_autosave_v3');
@@ -535,7 +564,6 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [quoteCardNode, setQuoteCardNode] = useState(null);
-  
   const [aiBgImage, setAiBgImage] = useState(null);
   const [isGeneratingBg, setIsGeneratingBg] = useState(false);
 
@@ -561,7 +589,6 @@ export default function App() {
     setTimeout(() => setToastMessage(null), duration);
   }, []);
 
-  // 保存設定與科判資料到 LocalStorage
   useEffect(() => {
     try {
       localStorage.setItem('outline_editor_autosave_v3', JSON.stringify(kepanTree));
@@ -997,18 +1024,20 @@ export default function App() {
     setIsAILoadingId(null);
   };
 
-  const explainText = async (selectedText) => {
-    const initialPrompt = `請用淺顯易懂的現代白話文，為以下這段佛教經典/古文進行「消文解義」。請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明：\n\n「${selectedText}」`;
+  // 優化消文功能，導入上下文脈絡感知
+  const explainText = async (selectedText, fullContext) => {
+    const initialPrompt = `請用淺顯易懂的現代白話文進行「消文解義」。\n\n【原文段落脈絡】：\n${fullContext}\n\n【使用者欲請教的字句】：\n「${selectedText}」\n\n請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明。請確保解釋符合上下文的語境。`;
     
     setExplainData({ 
       contextText: selectedText, 
+      fullContext: fullContext,
       messages: [{ role: 'user', parts: [{ text: initialPrompt }] }], 
       loading: true 
     });
 
     const result = await callGeminiChatAPI(
       [{ role: 'user', parts: [{ text: initialPrompt }] }], 
-      "你是一位精通藏傳五大論與菩提道次第廣論的佛學助理（法師角色）。請用溫和、耐心的現代白話文為使用者解答法義疑惑。輸出請使用漂亮的 Markdown 排版。"
+      "你是一位精通藏傳五大論與菩提道次第廣論的佛學助理（法師角色）。請用溫和、耐心的現代白話文為使用者解答法義疑惑，並且回答必須基於使用者提供的原文段落脈絡。輸出請使用漂亮的 Markdown 排版。"
     );
 
     if (result) {
@@ -1248,6 +1277,17 @@ export default function App() {
         </div>
       )}
 
+      {/* AI 處理全螢幕等待動畫 */}
+      {isAILoadingId && (
+        <div className="fixed inset-0 bg-stone-900/40 z-[100] flex items-center justify-center backdrop-blur-sm">
+          <div className={`flex flex-col items-center p-8 rounded-2xl shadow-2xl ${isDark ? 'bg-stone-800 text-teal-300 border border-stone-700' : 'bg-white text-teal-700 border border-stone-100'}`}>
+            <Wand2 size={40} className="animate-pulse mb-4 text-purple-500" />
+            <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-stone-200' : 'text-stone-800'}`}>魔法棒運作中</h3>
+            <p className={`text-sm ${isDark ? 'text-stone-400' : 'text-stone-500'}`}>AI 正在深入解析文義並為您拆分科判骨架，請稍候...</p>
+          </div>
+        </div>
+      )}
+
       {/* Header 工具列 */}
       <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${themeConfig.headerBg} ${themeConfig.border}`}>
         <div className="flex items-center gap-4">
@@ -1324,10 +1364,10 @@ export default function App() {
         </div>
       </header>
 
-      {/* 互動式對話消文 Modal */}
+      {/* 擴展寬度的互動式對話消文 Modal */}
       {explainData && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-2xl rounded-xl shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border flex flex-col h-[85vh]`}>
+          <div className={`w-full max-w-4xl rounded-xl shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border flex flex-col h-[85vh]`}>
             <div className={`flex justify-between items-center p-4 border-b ${themeConfig.panelBorder}`}>
               <h2 className="text-lg font-bold flex items-center gap-2"><Sparkles size={18} className="text-purple-500"/> AI 智慧消文法師</h2>
               <button onClick={() => setExplainData(null)} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
@@ -1344,7 +1384,7 @@ export default function App() {
                   <div className={`text-xs opacity-50 mb-1 px-1 ${msg.role === 'user' ? 'text-right' : ''}`}>
                      {msg.role === 'user' ? '您' : 'AI 法師'}
                   </div>
-                  <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${
+                  <div className={`max-w-[85%] p-4 rounded-2xl text-base leading-relaxed ${
                     msg.role === 'user' 
                       ? `${isDark ? 'bg-teal-900/60' : 'bg-teal-50'} border ${themeConfig.border} rounded-tr-sm`
                       : `${isDark ? 'bg-stone-800' : 'bg-stone-100'} rounded-tl-sm shadow-sm`
@@ -1405,7 +1445,6 @@ export default function App() {
             </div>
             
             <div id="quote-card-element" className={`w-full aspect-square ${THEMES[settings.themeKey].cardBg} rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col justify-center relative overflow-hidden border border-white/20`}>
-               {/* 動態生成的意境背景圖層 */}
                {aiBgImage && (
                  <img src={aiBgImage} alt="AI Background" className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-luminosity z-0" />
                )}
