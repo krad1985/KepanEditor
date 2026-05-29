@@ -1,4 +1,4 @@
-// Version: 4.1.0 - 導入 Imagen 4.0 圖像生成模型，實作金句卡 AI 專屬意境背景繪製功能
+// Version: 4.1.0 - 徹底拔除 Firebase 雲端同步以優化效能與免除干擾，並新增全域字型切換功能
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -6,20 +6,13 @@ import {
   SplitSquareHorizontal, GripVertical, AlignLeft,
   Undo2, Redo2, Columns, Map, BookOpen, Wand2, Settings,
   X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette,
-  DownloadCloud, Image as ImageIcon, Sparkles, Send, Copy, Download
+  DownloadCloud, Image as ImageIcon, Sparkles, Send, Copy, Download, Type
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'outline-editor-app';
-const safeAppId = appId.replace(/\//g, '_'); 
+// --- 環境變數設定 ---
 const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
 
+// --- 工具函數 ---
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
@@ -73,6 +66,7 @@ const formatRichText = (txt, themeConfig) => {
   return html.replace(/\n/g, '<br/>');
 };
 
+// --- 智慧文字輸入框 (SmartTextarea) ---
 const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, className, themeConfig, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
@@ -182,6 +176,7 @@ const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, class
   );
 };
 
+// --- 常數與設定 ---
 const INITIAL_EMPTY_KEPAN_TREE = [{
   "id": "root-1",
   "title": "新科判",
@@ -195,6 +190,7 @@ const DEFAULT_SETTINGS = {
   apiKeys: '',
   apiModel: 'gemini-2.5-flash',
   customModel: '',
+  fontFamily: 'font-sans',
   aiPrompt: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`
 };
 
@@ -205,6 +201,18 @@ const AI_MODELS = [
   { label: 'Gemini 3 Flash Preview', value: 'gemini-3-flash-preview' },
   { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' }
 ];
+
+const FONT_OPTIONS = [
+  { label: '現代無襯線 (系統預設)', value: 'font-sans' },
+  { label: '傳統明體 (Serif)', value: 'font-serif' },
+  { label: '典雅楷體 (Kai)', value: 'font-kai' }
+];
+
+const FONT_STYLES = {
+  'font-sans': 'ui-sans-serif, system-ui, sans-serif',
+  'font-serif': '"Noto Serif TC", "PMingLiU", "MingLiU", serif',
+  'font-kai': '"DFKai-SB", "BiauKai", "Kaiti TC", "KaiTi", serif'
+};
 
 const AI_PROMPT_PRESETS = [
   { label: '預設：依意群適度拆分', value: DEFAULT_SETTINGS.aiPrompt },
@@ -250,6 +258,7 @@ const THEMES = {
   }
 };
 
+// --- 獨立的 TreeNode 元件 ---
 const TreeNode = React.memo(({ 
   kepanNode, depth, mode, themeConfig, apiKeys,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
@@ -492,15 +501,28 @@ const TreeNode = React.memo(({
   );
 });
 
+// --- 主應用程式 ---
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
-  const [syncStatus, setSyncStatus] = useState(''); 
-  
-  const [historyState, setHistoryState] = useState({ past: [], present: INITIAL_EMPTY_KEPAN_TREE, future: [] });
+  // 本地儲存資料載入
+  const [historyState, setHistoryState] = useState(() => {
+    try {
+      const savedTree = localStorage.getItem('outline_editor_autosave_v3');
+      return { past: [], present: savedTree ? JSON.parse(savedTree) : INITIAL_EMPTY_KEPAN_TREE, future: [] };
+    } catch (error) {
+      return { past: [], present: INITIAL_EMPTY_KEPAN_TREE, future: [] };
+    }
+  });
+
   const kepanTree = Array.isArray(historyState.present) ? historyState.present : INITIAL_EMPTY_KEPAN_TREE;
   
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState(() => {
+    try {
+      const savedSettings = localStorage.getItem('outline_editor_settings');
+      if (savedSettings) return { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) };
+    } catch (error) {}
+    return DEFAULT_SETTINGS;
+  });
+
   const [mode, setMode] = useState('text'); 
   const [focusId, setFocusId] = useState(null); 
   const [expandedTreeNodes, setExpandedTreeNodes] = useState(new Set(['root-1']));
@@ -514,7 +536,6 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [quoteCardNode, setQuoteCardNode] = useState(null);
   
-  // AI Image Background State
   const [aiBgImage, setAiBgImage] = useState(null);
   const [isGeneratingBg, setIsGeneratingBg] = useState(false);
 
@@ -540,49 +561,13 @@ export default function App() {
     setTimeout(() => setToastMessage(null), duration);
   }, []);
 
+  // 保存設定與科判資料到 LocalStorage
   useEffect(() => {
-    if (!auth) { setIsCloudLoaded(true); return; }
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
-        else await signInAnonymously(auth);
-      } catch (error) { console.error("Auth failed"); }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user || !db) return;
-    const docRef = doc(db, 'artifacts', safeAppId, 'users', user.uid, 'editor', 'state');
-    const unsub = onSnapshot(docRef, (snap) => {
-      if (snap.exists() && !isCloudLoaded) {
-        const data = snap.data();
-        if (data.treeData) {
-          try { 
-            const parsed = JSON.parse(data.treeData);
-            setHistoryState({ past: [], present: Array.isArray(parsed) ? parsed : INITIAL_EMPTY_KEPAN_TREE, future: [] }); 
-          } catch(e){}
-        }
-        if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
-        setIsCloudLoaded(true);
-      } else if (!snap.exists() && !isCloudLoaded) setIsCloudLoaded(true);
-    });
-    return () => unsub();
-  }, [user, isCloudLoaded]);
-
-  useEffect(() => {
-    if (!user || !db || !isCloudLoaded) return;
-    setSyncStatus('saving');
-    const timer = setTimeout(() => {
-      const docRef = doc(db, 'artifacts', safeAppId, 'users', user.uid, 'editor', 'state');
-      setDoc(docRef, { treeData: JSON.stringify(kepanTree), settings: settings, updatedAt: Date.now() }, { merge: true })
-      .then(() => { setSyncStatus('saved'); setTimeout(() => setSyncStatus(''), 2000); })
-      .catch(e => setSyncStatus('error'));
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [kepanTree, settings, user, db, isCloudLoaded]);
+    try {
+      localStorage.setItem('outline_editor_autosave_v3', JSON.stringify(kepanTree));
+      localStorage.setItem('outline_editor_settings', JSON.stringify(settings));
+    } catch (error) {}
+  }, [kepanTree, settings]);
 
   const commitChange = useCallback((updaterOrTree) => {
     setHistoryState(prevState => {
@@ -642,6 +627,7 @@ export default function App() {
   }, [commitChange]);
 
   const addSiblingKepanNode = useCallback((targetId) => {
+    let newNodeId = null;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const newNode = { id: generateUniqueId(), title: '', content: '', note: '', children: [] };
@@ -652,14 +638,19 @@ export default function App() {
         return false;
       };
       if (insertRecursive(clonedTree)) {
-        setTimeout(() => document.getElementById(`input-${newNode.id}`)?.focus(), 50);
+        newNodeId = newNode.id;
         return clonedTree;
       }
       return currentTree;
     });
+    if (newNodeId) {
+      setTimeout(() => document.getElementById(`input-${newNodeId}`)?.focus(), 50);
+    }
   }, [commitChange]);
 
   const indentKepanNode = useCallback((targetId) => {
+    let expandId = null;
+    let success = false;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const processIndent = (nodes) => {
@@ -669,21 +660,27 @@ export default function App() {
           const prevSibling = nodes[index - 1];
           if (!prevSibling.children) prevSibling.children = [];
           prevSibling.children.push(nodeToMove);
-          setExpandedTreeNodes(prev => new Set(prev).add(prevSibling.id));
+          expandId = prevSibling.id;
           return true;
         }
         for (let node of nodes) { if (node.children && processIndent(node.children)) return true; }
         return false;
       };
       if (processIndent(clonedTree)) {
-        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        success = true;
         return clonedTree;
       }
       return currentTree;
     });
+    
+    if (success) {
+      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+      if (expandId) setExpandedTreeNodes(prev => new Set(prev).add(expandId));
+    }
   }, [commitChange]);
 
   const outdentKepanNode = useCallback((targetId) => {
+    let success = false;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const processOutdent = (nodes, parentArr = null, parentIndex = -1) => {
@@ -697,14 +694,19 @@ export default function App() {
         return false;
       };
       if (processOutdent(clonedTree)) {
-        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        success = true;
         return clonedTree;
       }
       return currentTree;
     });
+    
+    if (success) {
+      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+    }
   }, [commitChange]);
 
   const moveNode = useCallback((targetId, direction) => {
+    let success = false;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const processMove = (nodes) => {
@@ -723,16 +725,20 @@ export default function App() {
         return false;
       };
       if (processMove(clonedTree)) {
-        setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+        success = true;
         return clonedTree;
       }
       return currentTree;
     });
+    if (success) {
+      setTimeout(() => document.getElementById(`input-${targetId}`)?.focus(), 50);
+    }
   }, [commitChange]);
 
   const splitTextToSiblingKepanNode = useCallback((nodeId, cursorStart, currentText) => {
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
+    
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       let targetNode = null; let parentArray = null; let targetIndex = -1;
@@ -755,6 +761,8 @@ export default function App() {
   const splitTextToChildKepanNode = useCallback((nodeId, cursorStart, currentText) => {
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
+    
+    let success = false;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const targetNode = findNodeInKepanTree(clonedTree, nodeId);
@@ -762,14 +770,19 @@ export default function App() {
         targetNode.content = textBefore;
         if (!targetNode.children) targetNode.children = [];
         targetNode.children.unshift({ id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] });
-        setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+        success = true;
         return clonedTree;
       }
       return currentTree;
     });
+    
+    if (success) {
+      setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+    }
   }, [commitChange]);
 
   const deleteKepanNode = useCallback((id) => {
+    let success = false;
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const removeRecursive = (nodes) => {
@@ -779,15 +792,22 @@ export default function App() {
         return false;
       };
       if (removeRecursive(clonedTree)) {
-        if (focusId === id) setFocusId(null);
-        setDeleteMenuId(null);
+        success = true;
         return clonedTree;
       }
       return currentTree;
     });
+    
+    if (success) {
+      if (focusId === id) setFocusId(null);
+      setDeleteMenuId(null);
+    }
   }, [commitChange, focusId]);
 
   const mergeUpKepanNode = useCallback((id) => {
+    let success = false;
+    let isTopLevel = false;
+    
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       let targetNode = null; let prevSiblingNode = null; let targetParentNode = null;
@@ -809,15 +829,21 @@ export default function App() {
           if (additionalContent) mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
           if (targetNode.note) mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
           if (targetNode.children && targetNode.children.length > 0) mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
-          setDeleteMenuId(null);
+          success = true;
           return clonedTree;
         } else {
-          showToast("此節點已是最頂層，無法再向上合併。");
-          setDeleteMenuId(null);
+          isTopLevel = true;
         }
       }
       return currentTree;
     });
+    
+    if (success) {
+      setDeleteMenuId(null);
+    } else if (isTopLevel) {
+      showToast("此節點已是最頂層，無法再向上合併。");
+      setDeleteMenuId(null);
+    }
   }, [commitChange, showToast]);
 
   const handleDragStart = useCallback((e, id) => {
@@ -849,6 +875,7 @@ export default function App() {
       setDragInfo({ draggedId: null, overId: null, position: null });
       if (!draggedNodeId || draggedNodeId === targetId) return;
 
+      let expandId = null;
       commitChange(currentTree => {
         const clonedTree = deepCloneKepanTree(currentTree);
         let draggedNode = null;
@@ -869,7 +896,7 @@ export default function App() {
             else {
               if (!nodes[index].children) nodes[index].children = [];
               nodes[index].children.unshift(draggedNode); 
-              setExpandedTreeNodes(prev => new Set(prev).add(targetId));
+              expandId = targetId;
             }
             return true;
           }
@@ -879,6 +906,10 @@ export default function App() {
         if (insertAtTarget(clonedTree)) return clonedTree;
         return currentTree;
       });
+      
+      if (expandId) {
+        setExpandedTreeNodes(prev => new Set(prev).add(expandId));
+      }
     } catch (error) { setDragInfo({ draggedId: null, overId: null, position: null }); }
   }, [dragInfo, commitChange]);
 
@@ -938,7 +969,7 @@ export default function App() {
         const cleaned = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
         const generatedNodes = JSON.parse(cleaned);
         
-        if (!Array.isArray(generatedNodes)) throw new Error("Format");
+        if (!Array.isArray(generatedNodes)) throw new Error("Format error: Result is not an array");
 
         commitChange(currentTree => {
           const clonedTree = deepCloneKepanTree(currentTree);
@@ -953,11 +984,11 @@ export default function App() {
               children: []
             }));
             tNode.children = [...newAiNodes, ...(tNode.children || [])];
-            setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
             return clonedTree;
           }
           return currentTree;
         });
+        setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
         showToast("AI 拆分完成！");
       } catch (e) {
         showToast("AI 回傳格式解析失敗，已阻擋寫入以防止系統崩潰。");
@@ -1032,7 +1063,6 @@ export default function App() {
 
     setIsGeneratingBg(true);
     try {
-      // 根據指令使用 imagen-4.0-generate-001 模型進行高畫質生圖
       const visualConcept = quoteCardNode.content || quoteCardNode.title || 'Zen';
       const visualPrompt = `A highly aesthetic, serene, minimalist background for a spiritual quote card. Soft lighting, empty space, elegant texture. Concept inspiration: ${visualConcept.substring(0, 300)}`;
 
@@ -1207,13 +1237,10 @@ export default function App() {
     );
   };
 
-  if (!isCloudLoaded) {
-    return <div className="min-h-screen flex items-center justify-center text-stone-500">載入環境中...</div>;
-  }
-
   return (
-    <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`}>
+    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       
+      {/* Toast Notification */}
       {toastMessage && (
         <div className={`fixed bottom-6 right-6 px-4 py-3 rounded shadow-lg z-50 flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in ${isDark ? 'bg-stone-200 text-stone-900' : 'bg-stone-800 text-white'}`}>
           <span className="text-sm font-medium">{toastMessage}</span>
@@ -1221,10 +1248,7 @@ export default function App() {
         </div>
       )}
 
-      {syncStatus === 'saving' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-yellow-500 text-white text-xs px-3 py-1 rounded-full shadow z-50 animate-pulse">雲端儲存中...</div>}
-      {syncStatus === 'saved' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-teal-500 text-white text-xs px-3 py-1 rounded-full shadow z-50">雲端已同步 ✓</div>}
-      {syncStatus === 'error' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1 rounded-full shadow z-50">雲端儲存失敗</div>}
-
+      {/* Header 工具列 */}
       <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${themeConfig.headerBg} ${themeConfig.border}`}>
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold flex items-center gap-2">
@@ -1435,19 +1459,33 @@ export default function App() {
               <button onClick={() => setShowSettings(false)} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
             </div>
 
-            <div className="mb-6">
-              <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1"/> Google Gemini API Key (支援多組)</label>
-              <textarea 
-                value={settings.apiKeys} 
-                onChange={(e) => setSettings(prev => ({...prev, apiKeys: e.target.value}))}
-                placeholder="輸入您的 API 金鑰。若有多組，請用逗號 (,) 分隔以啟用輪替避開限制。"
-                rows={2}
-                className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
-              />
+            <div className="mb-6 flex gap-4">
+              <div className="flex-1">
+                <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Type size={16} className="inline mr-1"/> 偏好字型 (全域)</label>
+                <select 
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                  onChange={(e) => setSettings(prev => ({...prev, fontFamily: e.target.value}))}
+                  value={settings.fontFamily}
+                >
+                  {FONT_OPTIONS.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="mb-6 flex gap-4">
               <div className="flex-1">
+                <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1"/> Google Gemini API Key</label>
+                <textarea 
+                  value={settings.apiKeys} 
+                  onChange={(e) => setSettings(prev => ({...prev, apiKeys: e.target.value}))}
+                  placeholder="輸入您的 API 金鑰。若有多組，請用逗號 (,) 分隔以啟用輪替避開限制。"
+                  rows={2}
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
+                />
+              </div>
+              <div className="w-1/3">
                 <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>指定模型</label>
                 <select 
                   className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
@@ -1459,20 +1497,20 @@ export default function App() {
                   ))}
                 </select>
               </div>
-              
-              {settings.apiModel === 'custom' && (
-                <div className="flex-1 animate-in fade-in">
-                  <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
-                  <input 
-                    type="text" 
-                    value={settings.customModel} 
-                    onChange={(e) => setSettings(prev => ({...prev, customModel: e.target.value}))}
-                    placeholder="如: gemini-4-flash"
-                    className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
-                  />
-                </div>
-              )}
             </div>
+
+            {settings.apiModel === 'custom' && (
+              <div className="mb-6 animate-in fade-in">
+                <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
+                <input 
+                  type="text" 
+                  value={settings.customModel} 
+                  onChange={(e) => setSettings(prev => ({...prev, customModel: e.target.value}))}
+                  placeholder="如: gemini-4-flash"
+                  className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
+                />
+              </div>
+            )}
 
             <div className="mb-6">
               <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
