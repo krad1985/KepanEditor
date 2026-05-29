@@ -1,4 +1,4 @@
-// Version: 4.2.1 - 修復 Vercel 佈署編譯問題，精簡全域變數與元件宣告，落實 Clean Code 規範
+// Version: 4.2.2 - 徹底移除 Firebase 依賴，修復佈署編譯問題並落實全本地儲存
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -8,17 +8,8 @@ import {
   X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette,
   DownloadCloud, Image as ImageIcon, Sparkles, Send, Copy, Download, Type
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
-
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
-const safeAppId = typeof __app_id !== 'undefined' ? encodeURIComponent(__app_id) : 'outline-editor-app';
 
 /**
  * 產生唯一 ID
@@ -316,6 +307,7 @@ const TreeNode = React.memo(({
   const hasContent = kepanNode.content && String(kepanNode.content).trim().length > 0;
   const hasNote = kepanNode.note && String(kepanNode.note).trim().length > 0;
 
+  const isDark = themeConfig.isDark;
   const colorClass = themeConfig.depthColors[depth % themeConfig.depthColors.length];
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
@@ -490,6 +482,7 @@ const TreeNode = React.memo(({
                 onExplain={(text, context) => actions.explainText(text, context)}
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 themeConfig={themeConfig}
+                isDark={isDark}
                 className={`
                   w-full transition-all
                   ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}
@@ -519,6 +512,7 @@ const TreeNode = React.memo(({
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'note', val)}
                 placeholder="在此記錄您的修行觀察、心相調伏或疑問 (支援浮動工具列)..."
                 themeConfig={themeConfig}
+                isDark={isDark}
                 className="w-full bg-transparent text-sm leading-relaxed"
               />
             </div>
@@ -541,7 +535,6 @@ const TreeNode = React.memo(({
   );
 });
 
-// --- 主應用程式 ---
 export default function App() {
   const [historyState, setHistoryState] = useState(() => {
     try {
