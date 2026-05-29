@@ -1,4 +1,4 @@
-// Version: 4.0.2 - 修正 Firestore 路徑解析問題、強化 AI 解析防呆機制以避免白畫面崩潰、移除殘留的舊按鈕
+// Version: 4.1.0 - 導入 Imagen 4.0 圖像生成模型，實作金句卡 AI 專屬意境背景繪製功能
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -12,16 +12,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
-// --- Firebase 環境自動初始化 ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 const db = app ? getFirestore(app) : null;
-// 確保路徑中不會有斜線導致 Firestore 誤判階層，引發 Invalid document reference
-const safeAppId = typeof __app_id !== 'undefined' ? encodeURIComponent(__app_id) : 'outline-editor-app';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'outline-editor-app';
+const safeAppId = appId.replace(/\//g, '_'); 
 const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
 
-// --- 工具函數 ---
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
@@ -515,6 +513,11 @@ export default function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const [quoteCardNode, setQuoteCardNode] = useState(null);
+  
+  // AI Image Background State
+  const [aiBgImage, setAiBgImage] = useState(null);
+  const [isGeneratingBg, setIsGeneratingBg] = useState(false);
+
   const [explainData, setExplainData] = useState(null); 
   const [chatInput, setChatInput] = useState('');
   const [isAILoadingId, setIsAILoadingId] = useState(null);
@@ -1015,6 +1018,53 @@ export default function App() {
 
   const openQuoteCard = (node) => {
     setQuoteCardNode(node);
+    setAiBgImage(null);
+  };
+
+  const generateCardBackground = async () => {
+    const keyList = settings.apiKeys.split(',').map(k => k.trim()).filter(Boolean);
+    const actualKey = keyList.length > 0 ? keyList[0] : envApiKey;
+
+    if (!actualKey) {
+      showToast("請先至右上角「設定」輸入 API 金鑰才能啟用背景繪製。");
+      return;
+    }
+
+    setIsGeneratingBg(true);
+    try {
+      // 根據指令使用 imagen-4.0-generate-001 模型進行高畫質生圖
+      const visualConcept = quoteCardNode.content || quoteCardNode.title || 'Zen';
+      const visualPrompt = `A highly aesthetic, serene, minimalist background for a spiritual quote card. Soft lighting, empty space, elegant texture. Concept inspiration: ${visualConcept.substring(0, 300)}`;
+
+      const payload = {
+        instances: { prompt: visualPrompt },
+        parameters: { sampleCount: 1 }
+      };
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${actualKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText.substring(0, 100));
+      }
+
+      const result = await response.json();
+      if (result.predictions && result.predictions[0]) {
+        const imageUrl = `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+        setAiBgImage(imageUrl);
+        showToast("意境背景繪製完成！");
+      } else {
+        throw new Error("模型未回傳圖片資料");
+      }
+    } catch (error) {
+      showToast(`背景生成失敗: ${error.message}`);
+    } finally {
+      setIsGeneratingBg(false);
+    }
   };
 
   const downloadQuoteCard = async () => {
@@ -1327,17 +1377,22 @@ export default function App() {
                <h3 className="text-white font-bold tracking-widest text-sm flex items-center gap-2">
                   <ImageIcon size={16}/> 法語金句卡
                </h3>
-               <button onClick={() => setQuoteCardNode(null)} className="p-2 text-white/70 hover:text-white transition-colors bg-white/10 rounded-full"><X size={18}/></button>
+               <button onClick={() => { setQuoteCardNode(null); setAiBgImage(null); }} className="p-2 text-white/70 hover:text-white transition-colors bg-white/10 rounded-full"><X size={18}/></button>
             </div>
             
             <div id="quote-card-element" className={`w-full aspect-square ${THEMES[settings.themeKey].cardBg} rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col justify-center relative overflow-hidden border border-white/20`}>
-               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-teal-400 via-emerald-500 to-sky-500"></div>
-               <div className={`absolute top-8 right-8 ${themeConfig.bold} opacity-10`}><Leaf size={64}/></div>
+               {/* 動態生成的意境背景圖層 */}
+               {aiBgImage && (
+                 <img src={aiBgImage} alt="AI Background" className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-luminosity z-0" />
+               )}
+               
+               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-teal-400 via-emerald-500 to-sky-500 z-10"></div>
+               <div className={`absolute top-8 right-8 ${themeConfig.bold} opacity-10 z-10`}><Leaf size={64}/></div>
                
                <h2 className={`text-2xl md:text-3xl font-bold mb-6 z-10 ${themeConfig.bold} tracking-wide leading-tight`}>{String(quoteCardNode.title || '')}</h2>
                
                {quoteCardNode.content && (
-                 <p className={`text-lg md:text-xl leading-[1.8] z-10 ${themeConfig.text} font-serif`} dangerouslySetInnerHTML={{ __html: formatRichText(String(quoteCardNode.content), themeConfig) }}></p>
+                 <p className={`text-lg md:text-xl leading-[1.8] z-10 ${themeConfig.text} font-serif drop-shadow-sm`} dangerouslySetInnerHTML={{ __html: formatRichText(String(quoteCardNode.content), themeConfig) }}></p>
                )}
                
                {quoteCardNode.note && (
@@ -1346,17 +1401,27 @@ export default function App() {
                    <div className="text-sm italic leading-relaxed" dangerouslySetInnerHTML={{ __html: formatRichText(String(quoteCardNode.note), themeConfig) }}></div>
                  </div>
                )}
-               <div className="absolute bottom-8 left-10 text-[10px] font-bold opacity-30 tracking-[0.2em] uppercase flex items-center gap-1.5">
+               <div className="absolute bottom-8 left-10 text-[10px] font-bold opacity-40 tracking-[0.2em] uppercase flex items-center gap-1.5 z-10">
                  <ListTree size={12}/> 聞思科判筆記
                </div>
             </div>
 
-            <button 
-              onClick={downloadQuoteCard}
-              className="flex items-center gap-2 px-8 py-3 bg-white text-stone-900 rounded-full font-bold shadow-xl hover:scale-105 hover:bg-teal-50 transition-all"
-            >
-              <Download size={18}/> 儲存高畫質圖片
-            </button>
+            <div className="flex gap-4">
+              <button 
+                onClick={downloadQuoteCard}
+                className="flex items-center gap-2 px-6 py-3 bg-white text-stone-900 rounded-full font-bold shadow-xl hover:scale-105 hover:bg-teal-50 transition-all"
+              >
+                <Download size={18}/> 儲存高畫質圖片
+              </button>
+              <button 
+                onClick={generateCardBackground}
+                disabled={isGeneratingBg}
+                className="flex items-center gap-2 px-6 py-3 bg-purple-600/90 hover:bg-purple-600 text-white rounded-full font-bold shadow-xl hover:scale-105 transition-all disabled:opacity-50 disabled:hover:scale-100"
+              >
+                {isGeneratingBg ? <Wand2 className="animate-spin" size={18} /> : <Sparkles size={18}/>}
+                {isGeneratingBg ? '意境繪製中...' : 'AI 意境背景'}
+              </button>
+            </div>
           </div>
         </div>
       )}
