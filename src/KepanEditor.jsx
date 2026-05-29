@@ -1,4 +1,4 @@
-// Version: 4.2.0 - 新增圓體與手寫字型、加入 AI 處理全螢幕等待動畫、擴充消文對話框寬度並導入上下文脈絡感知
+// Version: 4.2.1 - 修復 Vercel 佈署編譯問題，精簡全域變數與元件宣告，落實 Clean Code 規範
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
@@ -14,25 +14,31 @@ import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
 
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+const safeAppId = typeof __app_id !== 'undefined' ? encodeURIComponent(__app_id) : 'outline-editor-app';
+
 /**
  * 產生唯一 ID
- * @returns {string} 
+ * @returns {string} 隨機產生的 9 碼字串
  */
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
 
 /**
  * 深度複製科判樹
- * @param {Array} treeNodes 
- * @returns {Array}
+ * @param {Array} treeNodes - 欲複製的節點陣列
+ * @returns {Array} 複製後的新陣列
  */
 const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
 /**
  * 尋找節點路徑
- * @param {Array} treeNodes 
- * @param {string} targetNodeId 
- * @param {Array} currentPath 
- * @returns {Array|null}
+ * @param {Array} treeNodes - 搜尋的節點陣列
+ * @param {string} targetNodeId - 目標節點 ID
+ * @param {Array} currentPath - 當前累積的路徑
+ * @returns {Array|null} 節點路徑陣列或 null
  */
 const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   for (let kepanNode of treeNodes) {
@@ -48,9 +54,9 @@ const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
 
 /**
  * 尋找特定節點
- * @param {Array} treeNodes 
- * @param {string} targetNodeId 
- * @returns {Object|null}
+ * @param {Array} treeNodes - 搜尋的節點陣列
+ * @param {string} targetNodeId - 目標節點 ID
+ * @returns {Object|null} 找到的節點物件或 null
  */
 const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   for (let kepanNode of treeNodes) {
@@ -64,10 +70,10 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
 };
 
 /**
- * 轉換科判為 Markdown
- * @param {Array} nodes 
- * @param {number} level 
- * @returns {string}
+ * 轉換科判為 Markdown 格式
+ * @param {Array} nodes - 科判節點陣列
+ * @param {number} level - 當前縮排層級
+ * @returns {string} 格式化後的 Markdown 字串
  */
 const convertToMarkdown = (nodes, level = 0) => {
   let md = "";
@@ -87,6 +93,12 @@ const convertToMarkdown = (nodes, level = 0) => {
   return md;
 };
 
+/**
+ * 解析輕量級富文本
+ * @param {string} txt - 原始文字
+ * @param {Object} themeConfig - 主題設定檔
+ * @returns {string} HTML 字串
+ */
 const formatRichText = (txt, themeConfig) => {
   if (!txt) return '';
   let html = txt
@@ -96,7 +108,7 @@ const formatRichText = (txt, themeConfig) => {
   return html.replace(/\n/g, '<br/>');
 };
 
-const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, className, themeConfig, isDark }) => {
+const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, className, themeConfig }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
 
@@ -137,7 +149,7 @@ const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, class
     const end = textareaRef.current.selectionEnd;
     const currentVal = value || '';
     const selected = currentVal.substring(start, end).trim();
-    if (selected) onExplain(selected, currentVal); // 傳遞選擇文字與完整上下文
+    if (selected) onExplain(selected, currentVal); 
   };
 
   const handleClick = () => {
@@ -291,10 +303,10 @@ const THEMES = {
 };
 
 const TreeNode = React.memo(({ 
-  kepanNode, depth, mode, themeConfig,
+  kepanNode, depth, mode, themeConfig, apiKeys,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId,
-  actions 
+  actions, showToast 
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
@@ -304,7 +316,6 @@ const TreeNode = React.memo(({
   const hasContent = kepanNode.content && String(kepanNode.content).trim().length > 0;
   const hasNote = kepanNode.note && String(kepanNode.note).trim().length > 0;
 
-  const isDark = themeConfig.isDark;
   const colorClass = themeConfig.depthColors[depth % themeConfig.depthColors.length];
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
@@ -479,7 +490,6 @@ const TreeNode = React.memo(({
                 onExplain={(text, context) => actions.explainText(text, context)}
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 themeConfig={themeConfig}
-                isDark={isDark}
                 className={`
                   w-full transition-all
                   ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}
@@ -509,7 +519,6 @@ const TreeNode = React.memo(({
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'note', val)}
                 placeholder="在此記錄您的修行觀察、心相調伏或疑問 (支援浮動工具列)..."
                 themeConfig={themeConfig}
-                isDark={isDark}
                 className="w-full bg-transparent text-sm leading-relaxed"
               />
             </div>
@@ -521,7 +530,7 @@ const TreeNode = React.memo(({
         <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
-              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} 
+              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
               deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
             />
@@ -532,6 +541,7 @@ const TreeNode = React.memo(({
   );
 });
 
+// --- 主應用程式 ---
 export default function App() {
   const [historyState, setHistoryState] = useState(() => {
     try {
@@ -1024,7 +1034,6 @@ export default function App() {
     setIsAILoadingId(null);
   };
 
-  // 優化消文功能，導入上下文脈絡感知
   const explainText = async (selectedText, fullContext) => {
     const initialPrompt = `請用淺顯易懂的現代白話文進行「消文解義」。\n\n【原文段落脈絡】：\n${fullContext}\n\n【使用者欲請教的字句】：\n「${selectedText}」\n\n請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明。請確保解釋符合上下文的語境。`;
     
@@ -1364,7 +1373,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* 擴展寬度的互動式對話消文 Modal */}
+      {/* 互動式對話消文 Modal */}
       {explainData && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className={`w-full max-w-4xl rounded-xl shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border flex flex-col h-[85vh]`}>
