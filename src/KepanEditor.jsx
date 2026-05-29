@@ -1,12 +1,25 @@
-// Version: 2.0.0 - 支援多組 API 金鑰輪替避開 429、自訂 AI 模型名稱、擴充沉浸式護眼主題
+// Version: 4.0.2 - 修正 Firestore 路徑解析問題、強化 AI 解析防呆機制以避免白畫面崩潰、移除殘留的舊按鈕
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, ListTree, ChevronRight, ChevronDown, 
   Trash2, Save, FolderOpen, Target, Home, 
   SplitSquareHorizontal, GripVertical, AlignLeft,
   Undo2, Redo2, Columns, Map, BookOpen, Wand2, Settings,
-  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette
+  X, Sun, Moon, Leaf, BookText, FilePlus, Highlighter, Bold, Key, Palette,
+  DownloadCloud, Image as ImageIcon, Sparkles, Send, Copy, Download
 } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+
+// --- Firebase 環境自動初始化 ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const app = Object.keys(firebaseConfig).length > 0 ? initializeApp(firebaseConfig) : null;
+const auth = app ? getAuth(app) : null;
+const db = app ? getFirestore(app) : null;
+// 確保路徑中不會有斜線導致 Firestore 誤判階層，引發 Invalid document reference
+const safeAppId = typeof __app_id !== 'undefined' ? encodeURIComponent(__app_id) : 'outline-editor-app';
+const envApiKey = typeof apiKey !== 'undefined' ? apiKey : ""; 
 
 // --- 工具函數 ---
 const generateUniqueId = () => Math.random().toString(36).substr(2, 9);
@@ -14,7 +27,7 @@ const deepCloneKepanTree = (treeNodes) => JSON.parse(JSON.stringify(treeNodes));
 
 const findPathInKepanTree = (treeNodes, targetNodeId, currentPath = []) => {
   for (let kepanNode of treeNodes) {
-    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title }];
+    const newPath = [...currentPath, { id: kepanNode.id, title: kepanNode.title, children: kepanNode.children }];
     if (kepanNode.id === targetNodeId) return newPath;
     if (kepanNode.children) {
       const foundPath = findPathInKepanTree(kepanNode.children, targetNodeId, newPath);
@@ -35,18 +48,34 @@ const findNodeInKepanTree = (treeNodes, targetNodeId) => {
   return null;
 };
 
-// --- 輕量級富文本解析 ---
+const convertToMarkdown = (nodes, level = 0) => {
+  let md = "";
+  nodes.forEach(node => {
+    const indent = "  ".repeat(level);
+    md += `${indent}- **${node.title || '無標題'}**\n`;
+    if (node.content && node.content.trim()) {
+      md += `${indent}  > ${node.content.trim().replace(/\n/g, '\n' + indent + '  > ')}\n`;
+    }
+    if (node.note && node.note.trim()) {
+      md += `${indent}  *🌱 札記: ${node.note.trim().replace(/\n/g, ' ')}*\n`;
+    }
+    if (node.children && node.children.length > 0) {
+      md += convertToMarkdown(node.children, level + 1);
+    }
+  });
+  return md;
+};
+
 const formatRichText = (txt, themeConfig) => {
   if (!txt) return '';
   let html = txt
-    .replace(/</g, '&lt;').replace(/>/g, '&gt;') // 防 XSS
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/==(.*?)==/g, `<mark class="${themeConfig.highlight} px-1 mx-0.5 rounded">$1</mark>`)
     .replace(/\*\*(.*?)\*\*/g, `<strong class="font-extrabold ${themeConfig.bold}">$1</strong>`);
   return html.replace(/\n/g, '<br/>');
 };
 
-// --- 智慧文字輸入框 (SmartTextarea) ---
-const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, themeConfig }) => {
+const SmartTextarea = ({ value, onChange, onSplit, onExplain, placeholder, className, themeConfig, isDark }) => {
   const [isEditing, setIsEditing] = useState(false);
   const textareaRef = useRef(null);
 
@@ -63,11 +92,9 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, theme
     const start = textareaRef.current.selectionStart;
     const end = textareaRef.current.selectionEnd;
     const currentVal = value || '';
-
     const before = currentVal.substring(0, start);
     const selected = currentVal.substring(start, end);
     const after = currentVal.substring(end);
-
     const newVal = before + prefix + selected + suffix + after;
     
     textareaRef.current.style.height = 'auto';
@@ -82,11 +109,19 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, theme
     }, 0);
   };
 
+  const handleExplainTrigger = (e) => {
+    e.preventDefault();
+    if (!textareaRef.current || !onExplain) return;
+    const start = textareaRef.current.selectionStart;
+    const end = textareaRef.current.selectionEnd;
+    const currentVal = value || '';
+    const selected = currentVal.substring(start, end).trim();
+    if (selected) onExplain(selected);
+  };
+
   const handleClick = (e) => {
     const selection = window.getSelection();
-    if (selection && selection.toString().length > 0) {
-      return;
-    }
+    if (selection && selection.toString().length > 0) return;
     setIsEditing(true);
   };
 
@@ -97,16 +132,23 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, theme
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('==', '=='); }}
             className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-yellow-600 dark:text-yellow-400`}
-            title="反白文字後點擊，標記為重點"
+            title="標記重點"
           >
             <Highlighter size={12} className="mr-1"/> 重點
           </button>
           <button
             onMouseDown={(e) => { e.preventDefault(); applyFormat('**', '**'); }}
             className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-teal-600 dark:text-teal-400`}
-            title="反白文字後點擊，標記為粗體"
+            title="標記粗體"
           >
             <Bold size={12} className="mr-1"/> 粗體
+          </button>
+          <button
+            onMouseDown={handleExplainTrigger}
+            className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-purple-600 dark:text-purple-400`}
+            title="AI 智慧對話消文"
+          >
+            <Sparkles size={12} className="mr-1"/> 消文
           </button>
         </div>
 
@@ -142,7 +184,6 @@ const SmartTextarea = ({ value, onChange, onSplit, placeholder, className, theme
   );
 };
 
-// --- 初始空白資料模板 ---
 const INITIAL_EMPTY_KEPAN_TREE = [{
   "id": "root-1",
   "title": "新科判",
@@ -151,7 +192,14 @@ const INITIAL_EMPTY_KEPAN_TREE = [{
   "children": []
 }];
 
-// --- AI 模型設定 ---
+const DEFAULT_SETTINGS = {
+  themeKey: 'default',
+  apiKeys: '',
+  apiModel: 'gemini-2.5-flash',
+  customModel: '',
+  aiPrompt: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`
+};
+
 const AI_MODELS = [
   { label: 'Gemini 2.5 Flash (預設推薦)', value: 'gemini-2.5-flash' },
   { label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' },
@@ -161,84 +209,84 @@ const AI_MODELS = [
 ];
 
 const AI_PROMPT_PRESETS = [
-  { label: '預設：依意群適度拆分', value: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。` },
+  { label: '預設：依意群適度拆分', value: DEFAULT_SETTINGS.aiPrompt },
   { label: '細緻：逐句/小段落詳細拆分', value: `請將以下原文進行非常細緻的逐句或小段落拆分，適合深度研討。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "精煉標題", "content": "詳細內文段落", "note": "" } ]\n\n注意：只回傳 JSON 陣列，無多餘文字。` },
   { label: '簡要：僅提煉核心骨架', value: `請閱讀以下原文，僅提煉出最核心的科判大綱骨架，不需保留完整內文，將重點摘要放入 note 中。\n必須嚴格回傳 JSON 格式，架構如下:\n[ { "title": "核心標題", "content": "", "note": "重點摘要" } ]\n\n注意：只回傳 JSON 陣列。` }
 ];
 
-// --- 擴充主題系統 ---
 const THEMES = {
   default: {
-    name: '石灰淨白',
-    bg: "bg-stone-50", text: "text-stone-800", headerBg: "bg-white", border: "border-stone-200",
+    name: '石灰淨白', isDark: false, bg: "bg-stone-50", text: "text-stone-800", headerBg: "bg-white", border: "border-stone-200",
     depthColors: ['text-blue-900 border-blue-900', 'text-teal-800 border-teal-800', 'text-emerald-700 border-emerald-700', 'text-cyan-700 border-cyan-700'],
     highlight: "bg-yellow-200 text-yellow-800", bold: "text-teal-700", panelBg: "bg-white", panelBorder: "border-stone-200", btnHover: "hover:bg-stone-100", placeholder: "text-stone-400",
-    textarea: "text-stone-800 hover:bg-stone-100/50 focus:bg-stone-100/50", outlineTextarea: "bg-stone-100/50 border-stone-200", noteBg: "bg-[#fffdf5] text-[#5c4b3a] border-amber-400"
+    textarea: "text-stone-800 hover:bg-stone-100/50 focus:bg-stone-100/50", outlineTextarea: "bg-stone-100/50 border-stone-200", noteBg: "bg-[#fffdf5] text-[#5c4b3a] border-amber-400",
+    cardBg: "bg-gradient-to-br from-stone-50 to-stone-200"
   },
   beige: {
-    name: '貝葉經黃',
-    bg: "bg-[#fdfbf7]", text: "text-[#5c4b3a]", headerBg: "bg-[#f9f6ef]", border: "border-[#e8e2d2]",
+    name: '貝葉經黃', isDark: false, bg: "bg-[#fdfbf7]", text: "text-[#5c4b3a]", headerBg: "bg-[#f9f6ef]", border: "border-[#e8e2d2]",
     depthColors: ['text-[#4a3f35] border-[#4a3f35]', 'text-[#6b5b4b] border-[#6b5b4b]', 'text-[#8b7762] border-[#8b7762]', 'text-[#a6927a] border-[#a6927a]'],
     highlight: "bg-[#f0d8a8] text-[#5c4b3a]", bold: "text-[#8b5a2b]", panelBg: "bg-[#f9f6ef]", panelBorder: "border-[#e8e2d2]", btnHover: "hover:bg-[#e8e2d2]", placeholder: "text-[#a6927a]",
-    textarea: "text-[#5c4b3a] hover:bg-[#f4efe4] focus:bg-[#f4efe4]", outlineTextarea: "bg-[#f4efe4] border-[#e8e2d2]", noteBg: "bg-[#fcf8ed] text-[#5c4b3a] border-[#d4b886]"
+    textarea: "text-[#5c4b3a] hover:bg-[#f4efe4] focus:bg-[#f4efe4]", outlineTextarea: "bg-[#f4efe4] border-[#e8e2d2]", noteBg: "bg-[#fcf8ed] text-[#5c4b3a] border-[#d4b886]",
+    cardBg: "bg-gradient-to-br from-[#fdfbf7] to-[#e8e2d2]"
   },
   parchment: {
-    name: '羊皮古卷',
-    bg: "bg-[#f4ebd8]", text: "text-[#4a3f35]", headerBg: "bg-[#eee2ca]", border: "border-[#d8cbb0]",
+    name: '羊皮古卷', isDark: false, bg: "bg-[#f4ebd8]", text: "text-[#4a3f35]", headerBg: "bg-[#eee2ca]", border: "border-[#d8cbb0]",
     depthColors: ['text-[#3a3129] border-[#3a3129]', 'text-[#5a4d41] border-[#5a4d41]', 'text-[#796858] border-[#796858]', 'text-[#96826f] border-[#96826f]'],
     highlight: "bg-[#e2c792] text-[#3a3129]", bold: "text-[#8a4a23]", panelBg: "bg-[#eee2ca]", panelBorder: "border-[#d8cbb0]", btnHover: "hover:bg-[#d8cbb0]", placeholder: "text-[#96826f]",
-    textarea: "text-[#4a3f35] hover:bg-[#e8ddc3] focus:bg-[#e8ddc3]", outlineTextarea: "bg-[#e8ddc3] border-[#d8cbb0]", noteBg: "bg-[#fbf4e6] text-[#4a3f35] border-[#c4a976]"
+    textarea: "text-[#4a3f35] hover:bg-[#e8ddc3] focus:bg-[#e8ddc3]", outlineTextarea: "bg-[#e8ddc3] border-[#d8cbb0]", noteBg: "bg-[#fbf4e6] text-[#4a3f35] border-[#c4a976]",
+    cardBg: "bg-gradient-to-br from-[#f4ebd8] to-[#d8cbb0]"
   },
   dark: {
-    name: '檀木沉黑',
-    bg: "bg-[#1a1a1a]", text: "text-[#e0e0e0]", headerBg: "bg-[#242424]", border: "border-[#333333]",
+    name: '檀木沉黑', isDark: true, bg: "bg-[#1a1a1a]", text: "text-[#e0e0e0]", headerBg: "bg-[#242424]", border: "border-[#333333]",
     depthColors: ['text-blue-300 border-blue-300', 'text-teal-300 border-teal-300', 'text-emerald-300 border-emerald-300', 'text-cyan-300 border-cyan-300'],
     highlight: "bg-yellow-500/30 text-yellow-200", bold: "text-teal-300", panelBg: "bg-[#2a2a2a]", panelBorder: "border-[#404040]", btnHover: "hover:bg-[#404040]", placeholder: "text-stone-500",
-    textarea: "text-[#e0e0e0] hover:bg-[#2a2a2a] focus:bg-[#2a2a2a]", outlineTextarea: "bg-[#242424] border-[#333333]", noteBg: "bg-[#2a2418] text-amber-100 border-amber-600/50"
+    textarea: "text-[#e0e0e0] hover:bg-[#2a2a2a] focus:bg-[#2a2a2a]", outlineTextarea: "bg-[#242424] border-[#333333]", noteBg: "bg-[#2a2418] text-amber-100 border-amber-600/50",
+    cardBg: "bg-gradient-to-br from-[#2a2a2a] to-[#1a1a1a]"
   },
   midnight: {
-    name: '深海夜讀',
-    bg: "bg-[#0f172a]", text: "text-[#cbd5e1]", headerBg: "bg-[#1e293b]", border: "border-[#334155]",
+    name: '深海夜讀', isDark: true, bg: "bg-[#0f172a]", text: "text-[#cbd5e1]", headerBg: "bg-[#1e293b]", border: "border-[#334155]",
     depthColors: ['text-indigo-300 border-indigo-300', 'text-sky-300 border-sky-300', 'text-cyan-300 border-cyan-300', 'text-teal-300 border-teal-300'],
     highlight: "bg-amber-500/30 text-amber-200", bold: "text-sky-300", panelBg: "bg-[#1e293b]", panelBorder: "border-[#334155]", btnHover: "hover:bg-[#334155]", placeholder: "text-slate-500",
-    textarea: "text-[#cbd5e1] hover:bg-[#1e293b]/80 focus:bg-[#1e293b]/80", outlineTextarea: "bg-[#1e293b]/50 border-[#334155]", noteBg: "bg-[#1e293b] text-indigo-100 border-indigo-500/50"
+    textarea: "text-[#cbd5e1] hover:bg-[#1e293b]/80 focus:bg-[#1e293b]/80", outlineTextarea: "bg-[#1e293b]/50 border-[#334155]", noteBg: "bg-[#1e293b] text-indigo-100 border-indigo-500/50",
+    cardBg: "bg-gradient-to-br from-[#1e293b] to-[#0f172a]"
   }
 };
 
-// --- 獨立的 TreeNode 元件 ---
 const TreeNode = React.memo(({ 
-  kepanNode, depth, mode, themeConfig,
+  kepanNode, depth, mode, themeConfig, apiKeys,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId,
-  actions 
+  actions, showToast 
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
   const isNoteVisible = expandedNoteNodes.has(kepanNode.id);
   
   const hasChildren = kepanNode.children && kepanNode.children.length > 0;
-  const hasContent = kepanNode.content && kepanNode.content.trim().length > 0;
-  const hasNote = kepanNode.note && kepanNode.note.trim().length > 0;
+  const hasContent = kepanNode.content && String(kepanNode.content).trim().length > 0;
+  const hasNote = kepanNode.note && String(kepanNode.note).trim().length > 0;
 
+  const isDark = themeConfig.isDark;
   const colorClass = themeConfig.depthColors[depth % themeConfig.depthColors.length];
   const textSizes = ['text-2xl', 'text-xl', 'text-lg', 'text-base', 'text-sm'];
   const textSizeClass = textSizes[Math.min(depth, textSizes.length - 1)];
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
-      e.preventDefault();
-      actions.addSiblingKepanNode(kepanNode.id);
+      e.preventDefault(); actions.addSiblingKepanNode(kepanNode.id);
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      if (e.shiftKey) actions.outdentKepanNode(kepanNode.id);
-      else actions.indentKepanNode(kepanNode.id);
+      if (e.shiftKey) actions.outdentKepanNode(kepanNode.id); else actions.indentKepanNode(kepanNode.id);
     } else if (e.key === 'ArrowUp' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      actions.moveNode(kepanNode.id, 'up');
+      e.preventDefault(); actions.moveNode(kepanNode.id, 'up');
     } else if (e.key === 'ArrowDown' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      actions.moveNode(kepanNode.id, 'down');
+      e.preventDefault(); actions.moveNode(kepanNode.id, 'down');
     }
+  };
+
+  const handleAIAssistClick = (e) => {
+    e.stopPropagation();
+    actions.generateAISkeleton(kepanNode.id);
   };
 
   const isDragged = dragInfo.draggedId === kepanNode.id;
@@ -275,7 +323,6 @@ const TreeNode = React.memo(({
         className={`group relative flex items-start gap-1 ${mode === 'text' ? 'p-0 -ml-0' : 'p-1 -ml-1'} transition-colors ${dropZoneClass}`}
         onClick={handleNodeClick}
       >
-        
         {(mode === 'outline' || mode === 'split') && (
           <div 
             draggable
@@ -303,7 +350,7 @@ const TreeNode = React.memo(({
             <input
               id={`input-${kepanNode.id}`}
               type="text"
-              value={kepanNode.title}
+              value={String(kepanNode.title || '')}
               onChange={(e) => actions.updateKepanNode(kepanNode.id, 'title', e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="輸入科判標題..."
@@ -335,9 +382,19 @@ const TreeNode = React.memo(({
                 </button>
               )}
 
+              {(hasContent || hasNote) && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); actions.openQuoteCard(kepanNode); }}
+                  className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-sky-500 hover:bg-sky-500/20`}
+                  title="生成金句卡"
+                >
+                  <ImageIcon size={14} />
+                </button>
+              )}
+
               {hasContent && mode !== 'split' && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }}
+                  onClick={handleAIAssistClick}
                   disabled={isAILoadingId === kepanNode.id}
                   className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-500 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`}
                   title="AI 輔助骨架生成"
@@ -375,17 +432,16 @@ const TreeNode = React.memo(({
           {isContentVisible && mode !== 'split' && (
             <div className={`relative group/text w-full`}>
               <SmartTextarea
-                value={kepanNode.content}
+                value={String(kepanNode.content || '')}
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'content', val)}
                 onSplit={(cursorStart, currentText, isShift) => {
-                  if (isShift) {
-                    actions.splitTextToChildKepanNode(kepanNode.id, cursorStart, currentText);
-                  } else {
-                    actions.splitTextToSiblingKepanNode(kepanNode.id, cursorStart, currentText);
-                  }
+                  if (isShift) actions.splitTextToChildKepanNode(kepanNode.id, cursorStart, currentText);
+                  else actions.splitTextToSiblingKepanNode(kepanNode.id, cursorStart, currentText);
                 }}
+                onExplain={(text) => actions.explainText(text)}
                 placeholder={mode === 'text' ? "在此輸入或貼上原文..." : "無內文"}
                 themeConfig={themeConfig}
+                isDark={isDark}
                 className={`
                   w-full transition-all
                   ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}
@@ -411,15 +467,15 @@ const TreeNode = React.memo(({
                 <Leaf size={12} /> Dharma Journaling
               </div>
               <SmartTextarea
-                value={kepanNode.note || ''}
+                value={String(kepanNode.note || '')}
                 onChange={(val) => actions.updateKepanNode(kepanNode.id, 'note', val)}
                 placeholder="在此記錄您的修行觀察、心相調伏或疑問 (支援浮動工具列)..."
                 themeConfig={themeConfig}
+                isDark={isDark}
                 className="w-full bg-transparent text-sm leading-relaxed"
               />
             </div>
           )}
-
         </div>
       </div>
 
@@ -427,9 +483,9 @@ const TreeNode = React.memo(({
         <div className="mt-0">
           {kepanNode.children.map(childNode => (
             <TreeNode 
-              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
+              key={childNode.id} kepanNode={childNode} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} 
+              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
             />
           ))}
         </div>
@@ -438,21 +494,16 @@ const TreeNode = React.memo(({
   );
 });
 
-// --- 主應用程式 ---
 export default function App() {
-  const [historyState, setHistoryState] = useState(() => {
-    try {
-      const savedTree = localStorage.getItem('outline_editor_autosave_v3');
-      return { past: [], present: savedTree ? JSON.parse(savedTree) : INITIAL_EMPTY_KEPAN_TREE, future: [] };
-    } catch (error) {
-      return { past: [], present: INITIAL_EMPTY_KEPAN_TREE, future: [] };
-    }
-  });
-
-  const kepanTree = historyState.present;
-
+  const [user, setUser] = useState(null);
+  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(''); 
+  
+  const [historyState, setHistoryState] = useState({ past: [], present: INITIAL_EMPTY_KEPAN_TREE, future: [] });
+  const kepanTree = Array.isArray(historyState.present) ? historyState.present : INITIAL_EMPTY_KEPAN_TREE;
+  
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [mode, setMode] = useState('text'); 
-  const [themeKey, setThemeKey] = useState(() => localStorage.getItem('outline_theme') || 'default');
   const [focusId, setFocusId] = useState(null); 
   const [expandedTreeNodes, setExpandedTreeNodes] = useState(new Set(['root-1']));
   const [expandedContentNodes, setExpandedContentNodes] = useState(new Set());
@@ -462,16 +513,24 @@ export default function App() {
   const [activeBreadcrumbDropdown, setActiveBreadcrumbDropdown] = useState(null);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
 
-  // Settings
   const [showSettings, setShowSettings] = useState(false);
-  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('outline_api_key') || '');
-  const [userApiModel, setUserApiModel] = useState(() => localStorage.getItem('outline_api_model') || 'gemini-2.5-flash');
-  const [customApiModel, setCustomApiModel] = useState(() => localStorage.getItem('outline_custom_model') || '');
-  const [aiPrompt, setAiPrompt] = useState(() => localStorage.getItem('outline_ai_prompt') || AI_PROMPT_PRESETS[0].value);
+  const [quoteCardNode, setQuoteCardNode] = useState(null);
+  const [explainData, setExplainData] = useState(null); 
+  const [chatInput, setChatInput] = useState('');
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
-  const themeConfig = THEMES[themeKey] || THEMES.default;
+  const themeConfig = THEMES[settings.themeKey] || THEMES.default;
+  const isDark = themeConfig.isDark;
+
+  useEffect(() => {
+    if (!document.getElementById('html2canvas-script')) {
+      const script = document.createElement('script');
+      script.id = 'html2canvas-script';
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      document.body.appendChild(script);
+    }
+  }, []);
 
   const showToast = useCallback((msg, duration = 5000) => {
     setToastMessage(msg);
@@ -479,11 +538,48 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('outline_editor_autosave_v3', JSON.stringify(kepanTree));
-      localStorage.setItem('outline_theme', themeKey);
-    } catch (error) {}
-  }, [kepanTree, themeKey]);
+    if (!auth) { setIsCloudLoaded(true); return; }
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+        else await signInAnonymously(auth);
+      } catch (error) { console.error("Auth failed"); }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !db) return;
+    const docRef = doc(db, 'artifacts', safeAppId, 'users', user.uid, 'editor', 'state');
+    const unsub = onSnapshot(docRef, (snap) => {
+      if (snap.exists() && !isCloudLoaded) {
+        const data = snap.data();
+        if (data.treeData) {
+          try { 
+            const parsed = JSON.parse(data.treeData);
+            setHistoryState({ past: [], present: Array.isArray(parsed) ? parsed : INITIAL_EMPTY_KEPAN_TREE, future: [] }); 
+          } catch(e){}
+        }
+        if (data.settings) setSettings(prev => ({ ...prev, ...data.settings }));
+        setIsCloudLoaded(true);
+      } else if (!snap.exists() && !isCloudLoaded) setIsCloudLoaded(true);
+    });
+    return () => unsub();
+  }, [user, isCloudLoaded]);
+
+  useEffect(() => {
+    if (!user || !db || !isCloudLoaded) return;
+    setSyncStatus('saving');
+    const timer = setTimeout(() => {
+      const docRef = doc(db, 'artifacts', safeAppId, 'users', user.uid, 'editor', 'state');
+      setDoc(docRef, { treeData: JSON.stringify(kepanTree), settings: settings, updatedAt: Date.now() }, { merge: true })
+      .then(() => { setSyncStatus('saved'); setTimeout(() => setSyncStatus(''), 2000); })
+      .catch(e => setSyncStatus('error'));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [kepanTree, settings, user, db, isCloudLoaded]);
 
   const commitChange = useCallback((updaterOrTree) => {
     setHistoryState(prevState => {
@@ -522,37 +618,22 @@ export default function App() {
   }, [handleUndo, handleRedo]);
 
   const toggleTree = useCallback((id) => {
-    setExpandedTreeNodes(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setExpandedTreeNodes(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }, []);
 
   const toggleContent = useCallback((id) => {
-    setExpandedContentNodes(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setExpandedContentNodes(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }, []);
 
   const toggleNote = useCallback((id) => {
-    setExpandedNoteNodes(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+    setExpandedNoteNodes(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }, []);
 
   const updateKepanNode = useCallback((id, field, value) => {
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const targetNode = findNodeInKepanTree(clonedTree, id);
-      if (targetNode && targetNode[field] !== value) {
-        targetNode[field] = value;
-        return clonedTree;
-      }
+      if (targetNode && targetNode[field] !== value) { targetNode[field] = value; return clonedTree; }
       return currentTree;
     });
   }, [commitChange]);
@@ -563,13 +644,8 @@ export default function App() {
       const newNode = { id: generateUniqueId(), title: '', content: '', note: '', children: [] };
       const insertRecursive = (nodes) => {
         const index = nodes.findIndex(n => n.id === targetId);
-        if (index !== -1) {
-          nodes.splice(index + 1, 0, newNode);
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && insertRecursive(node.children)) return true;
-        }
+        if (index !== -1) { nodes.splice(index + 1, 0, newNode); return true; }
+        for (let node of nodes) { if (node.children && insertRecursive(node.children)) return true; }
         return false;
       };
       if (insertRecursive(clonedTree)) {
@@ -593,9 +669,7 @@ export default function App() {
           setExpandedTreeNodes(prev => new Set(prev).add(prevSibling.id));
           return true;
         }
-        for (let node of nodes) {
-          if (node.children && processIndent(node.children)) return true;
-        }
+        for (let node of nodes) { if (node.children && processIndent(node.children)) return true; }
         return false;
       };
       if (processIndent(clonedTree)) {
@@ -616,9 +690,7 @@ export default function App() {
           parentArr.splice(parentIndex + 1, 0, nodeToMove);
           return true;
         }
-        for (let i = 0; i < nodes.length; i++) {
-          if (nodes[i].children && processOutdent(nodes[i].children, nodes, i)) return true;
-        }
+        for (let i = 0; i < nodes.length; i++) { if (nodes[i].children && processOutdent(nodes[i].children, nodes, i)) return true; }
         return false;
       };
       if (processOutdent(clonedTree)) {
@@ -644,9 +716,7 @@ export default function App() {
           }
           return false;
         }
-        for (let node of nodes) {
-          if (node.children && processMove(node.children)) return true;
-        }
+        for (let node of nodes) { if (node.children && processMove(node.children)) return true; }
         return false;
       };
       if (processMove(clonedTree)) {
@@ -660,30 +730,19 @@ export default function App() {
   const splitTextToSiblingKepanNode = useCallback((nodeId, cursorStart, currentText) => {
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
-
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
-      let targetNode = null;
-      let parentArray = null;
-      let targetIndex = -1;
-
+      let targetNode = null; let parentArray = null; let targetIndex = -1;
       const findNodeAndParent = (nodes) => {
         for (let i = 0; i < nodes.length; i++) {
-          if (nodes[i].id === nodeId) {
-            targetNode = nodes[i];
-            parentArray = nodes;
-            targetIndex = i;
-            return true;
-          }
+          if (nodes[i].id === nodeId) { targetNode = nodes[i]; parentArray = nodes; targetIndex = i; return true; }
           if (nodes[i].children && findNodeAndParent(nodes[i].children)) return true;
         }
         return false;
       };
-
       if (findNodeAndParent(clonedTree)) {
         targetNode.content = textBefore;
-        const newNode = { id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] };
-        parentArray.splice(targetIndex + 1, 0, newNode);
+        parentArray.splice(targetIndex + 1, 0, { id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] });
         return clonedTree;
       }
       return currentTree;
@@ -693,15 +752,13 @@ export default function App() {
   const splitTextToChildKepanNode = useCallback((nodeId, cursorStart, currentText) => {
     const textBefore = currentText.substring(0, cursorStart).replace(/\s+$/, '');
     const textAfter = currentText.substring(cursorStart).replace(/^\s+/, '');
-
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
       const targetNode = findNodeInKepanTree(clonedTree, nodeId);
       if (targetNode) {
         targetNode.content = textBefore;
-        const newNode = { id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] };
         if (!targetNode.children) targetNode.children = [];
-        targetNode.children.unshift(newNode);
+        targetNode.children.unshift({ id: generateUniqueId(), title: '新科判', content: textAfter, note: '', children: [] });
         setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
         return clonedTree;
       }
@@ -714,13 +771,8 @@ export default function App() {
       const clonedTree = deepCloneKepanTree(currentTree);
       const removeRecursive = (nodes) => {
         const index = nodes.findIndex(n => n.id === id);
-        if (index !== -1) {
-          nodes.splice(index, 1);
-          return true;
-        }
-        for (let node of nodes) {
-          if (node.children && removeRecursive(node.children)) return true;
-        }
+        if (index !== -1) { nodes.splice(index, 1); return true; }
+        for (let node of nodes) { if (node.children && removeRecursive(node.children)) return true; }
         return false;
       };
       if (removeRecursive(clonedTree)) {
@@ -735,24 +787,15 @@ export default function App() {
   const mergeUpKepanNode = useCallback((id) => {
     commitChange(currentTree => {
       const clonedTree = deepCloneKepanTree(currentTree);
-      let targetNode = null;
-      let prevSiblingNode = null;
-      let targetParentNode = null;
-
+      let targetNode = null; let prevSiblingNode = null; let targetParentNode = null;
       const findAndMerge = (nodes, parentNode = null) => {
         const index = nodes.findIndex(n => n.id === id);
         if (index !== -1) {
           targetNode = nodes.splice(index, 1)[0];
-          if (index > 0) {
-            prevSiblingNode = nodes[index - 1]; 
-          } else {
-            targetParentNode = parentNode; 
-          }
+          if (index > 0) prevSiblingNode = nodes[index - 1]; else targetParentNode = parentNode;
           return true;
         }
-        for (let node of nodes) {
-          if (node.children && findAndMerge(node.children, node)) return true;
-        }
+        for (let node of nodes) { if (node.children && findAndMerge(node.children, node)) return true; }
         return false;
       };
 
@@ -760,15 +803,9 @@ export default function App() {
         const mergeTarget = prevSiblingNode || targetParentNode;
         if (mergeTarget) {
           const additionalContent = (targetNode.content || '').trim();
-          if (additionalContent) {
-            mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
-          }
-          if (targetNode.note) {
-            mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
-          }
-          if (targetNode.children && targetNode.children.length > 0) {
-            mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
-          }
+          if (additionalContent) mergeTarget.content = mergeTarget.content ? `${mergeTarget.content}\n${additionalContent}` : additionalContent;
+          if (targetNode.note) mergeTarget.note = mergeTarget.note ? `${mergeTarget.note}\n${targetNode.note}` : targetNode.note;
+          if (targetNode.children && targetNode.children.length > 0) mergeTarget.children = [...(mergeTarget.children || []), ...targetNode.children];
           setDeleteMenuId(null);
           return clonedTree;
         } else {
@@ -782,15 +819,11 @@ export default function App() {
 
   const handleDragStart = useCallback((e, id) => {
     e.stopPropagation(); 
-    try {
-      e.dataTransfer.setData('text/plain', id);
-      setDragInfo({ draggedId: id, overId: null, position: null });
-    } catch (error) {}
+    try { e.dataTransfer.setData('text/plain', id); setDragInfo({ draggedId: id, overId: null, position: null }); } catch (error) {}
   }, []);
 
   const handleDragOver = useCallback((e, id) => {
-    e.preventDefault();  
-    e.stopPropagation(); 
+    e.preventDefault(); e.stopPropagation(); 
     if (id === dragInfo.draggedId) return;
     try {
       const elementRect = e.currentTarget.getBoundingClientRect();
@@ -798,7 +831,6 @@ export default function App() {
       let dragPosition = 'inside';
       if (relativeY < elementRect.height * 0.25) dragPosition = 'top';
       else if (relativeY > elementRect.height * 0.75) dragPosition = 'bottom';
-
       setDragInfo(prev => {
         if (prev.overId === id && prev.position === dragPosition) return prev;
         return { ...prev, overId: id, position: dragPosition };
@@ -807,28 +839,20 @@ export default function App() {
   }, [dragInfo.draggedId]);
 
   const handleDrop = useCallback((e, targetId) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     try {
       const draggedNodeId = e.dataTransfer.getData('text/plain');
       const { position } = dragInfo;
       setDragInfo({ draggedId: null, overId: null, position: null });
-
       if (!draggedNodeId || draggedNodeId === targetId) return;
 
       commitChange(currentTree => {
         const clonedTree = deepCloneKepanTree(currentTree);
         let draggedNode = null;
-        
         const removeDraggedNode = (nodes) => {
           const index = nodes.findIndex(n => n.id === draggedNodeId);
-          if (index !== -1) {
-            draggedNode = nodes.splice(index, 1)[0];
-            return true;
-          }
-          for (let node of nodes) {
-            if (node.children && removeDraggedNode(node.children)) return true;
-          }
+          if (index !== -1) { draggedNode = nodes.splice(index, 1)[0]; return true; }
+          for (let node of nodes) { if (node.children && removeDraggedNode(node.children)) return true; }
           return false;
         };
         removeDraggedNode(clonedTree);
@@ -846,128 +870,181 @@ export default function App() {
             }
             return true;
           }
-          for (let node of nodes) {
-            if (node.children && insertAtTarget(node.children)) return true;
-          }
+          for (let node of nodes) { if (node.children && insertAtTarget(node.children)) return true; }
           return false;
         };
-        
         if (insertAtTarget(clonedTree)) return clonedTree;
         return currentTree;
       });
-    } catch (error) {
-      setDragInfo({ draggedId: null, overId: null, position: null });
-    }
+    } catch (error) { setDragInfo({ draggedId: null, overId: null, position: null }); }
   }, [dragInfo, commitChange]);
 
-  // --- 核心破局：多 API Keys 輪詢與自訂模型機制 ---
+  const callGeminiChatAPI = async (messagesArray, systemInstruction) => {
+    const keyList = settings.apiKeys.split(',').map(k => k.trim()).filter(Boolean);
+    const actualKey = keyList.length > 0 ? keyList[0] : envApiKey;
+    
+    if (!actualKey) {
+      showToast("請先至右上角「設定」輸入 Google Gemini API 金鑰。");
+      return null;
+    }
+    const finalModel = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
+    
+    const payload = {
+      contents: messagesArray,
+      systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
+    };
+
+    let lastErrorMsg = "";
+    let attempt = 0;
+    while (attempt < 2) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${finalModel}:generateContent?key=${actualKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+           const errTxt = await response.text();
+           throw new Error(errTxt);
+        }
+        const result = await response.json();
+        let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (textResult) return textResult;
+        throw new Error("回傳為空");
+      } catch (error) {
+        lastErrorMsg = error.message;
+        attempt++;
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+    showToast(`AI 呼叫失敗。原因: ${lastErrorMsg.substring(0, 100)}`);
+    return null;
+  };
+
   const generateAISkeleton = async (nodeId) => {
     const targetNode = findNodeInKepanTree(kepanTree, nodeId);
     if (!targetNode || !targetNode.content) return;
-    
-    // 解析使用者輸入的多個 Key
-    const keyList = userApiKey.split(',').map(k => k.trim()).filter(Boolean);
-    
-    if (keyList.length === 0) {
-      showToast("請先至右上角「設定」輸入至少一組 Google Gemini API 金鑰。");
-      return;
-    }
-    
     setIsAILoadingId(nodeId);
-    const finalModel = userApiModel === 'custom' ? customApiModel : userApiModel;
+    
+    const prompt = `原文內容：\n${targetNode.content}`;
+    const msgs = [{ role: 'user', parts: [{ text: prompt }] }];
+    const textResult = await callGeminiChatAPI(msgs, settings.aiPrompt);
+    
+    if (textResult) {
+      try {
+        const cleaned = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const generatedNodes = JSON.parse(cleaned);
+        
+        if (!Array.isArray(generatedNodes)) throw new Error("Format");
 
-    const payload = {
-      contents: [{ parts: [{ text: `原文內容：\n${targetNode.content}` }] }],
-      systemInstruction: { parts: [{ text: aiPrompt }] },
-      generationConfig: { responseMimeType: "application/json" }
-    };
-
-    let success = false;
-    let lastErrorMsg = "";
-
-    // 輪流測試每一組金鑰
-    for (const currentKey of keyList) {
-      if (success) break;
-      
-      let attempt = 0;
-      const maxAttempts = 2; // 每個金鑰允許重試次數
-
-      while (attempt < maxAttempts) {
-        try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${finalModel}:generateContent?key=${currentKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-
-          if (!response.ok) {
-            const errorJson = await response.json();
-            // 如果遇到 429 錯誤，直接拋出並中斷當前金鑰的嘗試迴圈，換下一把金鑰
-            if (response.status === 429) {
-                throw new Error("429 Quota Exceeded");
-            }
-            throw new Error(errorJson.error?.message || `HTTP 錯誤 ${response.status}`);
+        commitChange(currentTree => {
+          const clonedTree = deepCloneKepanTree(currentTree);
+          const tNode = findNodeInKepanTree(clonedTree, nodeId);
+          if (tNode) {
+            tNode.content = ""; 
+            const newAiNodes = generatedNodes.map(n => ({
+              id: generateUniqueId(), 
+              title: String(n.title || "新科判"), 
+              content: String(n.content || ""), 
+              note: String(n.note || ""), 
+              children: []
+            }));
+            tNode.children = [...newAiNodes, ...(tNode.children || [])];
+            setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
+            return clonedTree;
           }
-          
-          const result = await response.json();
-          let textResult = result.candidates?.[0]?.content?.parts?.[0]?.text;
-          
-          if (textResult) {
-            textResult = textResult.replace(/```json/gi, '').replace(/```/g, '').trim();
-            const generatedNodes = JSON.parse(textResult);
-            
-            commitChange(currentTree => {
-              const clonedTree = deepCloneKepanTree(currentTree);
-              const tNode = findNodeInKepanTree(clonedTree, nodeId);
-              if (tNode) {
-                tNode.content = ""; 
-                const newAiNodes = generatedNodes.map(n => ({
-                  id: generateUniqueId(),
-                  title: n.title || "新科判",
-                  content: n.content || "",
-                  note: n.note || "",
-                  children: []
-                }));
-                tNode.children = [...newAiNodes, ...(tNode.children || [])];
-                
-                setExpandedTreeNodes(prev => new Set(prev).add(nodeId));
-                return clonedTree;
-              }
-              return currentTree;
-            });
-            
-            success = true;
-            showToast("AI 拆分完成！");
-            break; // 成功，完全跳出迴圈
-          } else {
-            throw new Error("模型回傳結果為空");
-          }
-        } catch (error) {
-          lastErrorMsg = error.message;
-          // 若為 429 配額用盡，不需 delay 重試，直接跳出 inner while 讓外層切換下一把金鑰
-          if (error.message.includes("429")) {
-              break; 
-          }
-          attempt++;
-          if (attempt < maxAttempts) {
-             await new Promise(resolve => setTimeout(resolve, 1500));
-          }
-        }
+          return currentTree;
+        });
+        showToast("AI 拆分完成！");
+      } catch (e) {
+        showToast("AI 回傳格式解析失敗，已阻擋寫入以防止系統崩潰。");
       }
     }
-    
-    if (!success) {
-      showToast(`AI 生成失敗。原因: ${lastErrorMsg.substring(0, 80)}... 已嘗試所有金鑰。`, 8000);
-    }
-    
     setIsAILoadingId(null);
+  };
+
+  const explainText = async (selectedText) => {
+    const initialPrompt = `請用淺顯易懂的現代白話文，為以下這段佛教經典/古文進行「消文解義」。請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明：\n\n「${selectedText}」`;
+    
+    setExplainData({ 
+      contextText: selectedText, 
+      messages: [{ role: 'user', parts: [{ text: initialPrompt }] }], 
+      loading: true 
+    });
+
+    const result = await callGeminiChatAPI(
+      [{ role: 'user', parts: [{ text: initialPrompt }] }], 
+      "你是一位精通藏傳五大論與菩提道次第廣論的佛學助理（法師角色）。請用溫和、耐心的現代白話文為使用者解答法義疑惑。輸出請使用漂亮的 Markdown 排版。"
+    );
+
+    if (result) {
+      setExplainData(prev => ({
+        ...prev,
+        messages: [ ...prev.messages, { role: 'model', parts: [{ text: result }] } ],
+        loading: false
+      }));
+    } else {
+      setExplainData(null);
+    }
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || !explainData || explainData.loading) return;
+    
+    const newUserMsg = { role: 'user', parts: [{ text: chatInput }] };
+    const updatedMessages = [...explainData.messages, newUserMsg];
+    
+    setExplainData(prev => ({ ...prev, messages: updatedMessages, loading: true }));
+    setChatInput('');
+
+    const result = await callGeminiChatAPI(
+      updatedMessages,
+      "你是一位精通藏傳五大論的佛學助理法師。請針對使用者的追問給予耐心且生活化的解答。使用 Markdown 排版。"
+    );
+
+    if (result) {
+      setExplainData(prev => ({
+        ...prev,
+        messages: [...prev.messages, { role: 'model', parts: [{ text: result }] }],
+        loading: false
+      }));
+    } else {
+      setExplainData(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const openQuoteCard = (node) => {
+    setQuoteCardNode(node);
+  };
+
+  const downloadQuoteCard = async () => {
+    const element = document.getElementById('quote-card-element');
+    if (!element) return;
+    try {
+      const html2canvas = window.html2canvas;
+      if (!html2canvas) { showToast("圖片渲染引擎載入中，請稍候..."); return; }
+      
+      const canvas = await html2canvas(element, { 
+        scale: 2,
+        backgroundColor: null,
+        useCORS: true 
+      });
+      
+      const link = document.createElement('a');
+      link.download = `法語金句_${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      showToast("圖片已成功下載至您的裝置！");
+    } catch (e) {
+      showToast("圖片生成失敗，建議使用系統截圖功能。");
+    }
   };
 
   const kepanTreeActions = {
     updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode, moveNode,
     deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode, splitTextToChildKepanNode,
     setFocusId, setDeleteMenuId, toggleTree, toggleContent, toggleNote, generateAISkeleton,
-    handleDragStart, handleDragOver, handleDrop
+    handleDragStart, handleDragOver, handleDrop, openQuoteCard, explainText
   };
 
   const handleNewFile = () => {
@@ -991,8 +1068,22 @@ export default function App() {
       linkElement.download = `${rootTitle}.json`;
       linkElement.click();
       URL.revokeObjectURL(downloadUrl);
-    } catch (error) {
-      showToast("檔案匯出失敗，請重試。");
+    } catch (error) { showToast("檔案匯出失敗，請重試。"); }
+  };
+
+  const handleCopyMarkdown = async () => {
+    const mdContent = convertToMarkdown(kepanTree);
+    try {
+      await navigator.clipboard.writeText(mdContent);
+      showToast("Markdown 已複製到剪貼簿，請至 Notion 貼上！");
+    } catch (err) {
+      const textArea = document.createElement("textarea");
+      textArea.value = mdContent;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
+      showToast("Markdown 已複製到剪貼簿，請至 Notion 貼上！");
     }
   };
 
@@ -1004,44 +1095,37 @@ export default function App() {
       fileReader.onload = (event) => {
         try {
           const parsedData = JSON.parse(event.target.result);
+          if (!Array.isArray(parsedData)) throw new Error("無效");
           commitChange(parsedData);
           setFocusId(null);
           showToast("檔案匯入成功！");
-        } catch (err) {
-          showToast("檔案格式不正確，請匯入有效的 JSON 檔案。");
-        }
+        } catch (err) { showToast("檔案格式不正確，請匯入有效的 JSON 檔案。"); }
       };
       fileReader.readAsText(selectedFile);
-    } catch (error) {
-      showToast("讀取檔案發生錯誤。");
-    }
+    } catch (error) { showToast("讀取檔案發生錯誤。"); }
     e.target.value = ''; 
   };
 
-  const saveSettings = () => {
-    localStorage.setItem('outline_api_key', userApiKey);
-    localStorage.setItem('outline_api_model', userApiModel);
-    localStorage.setItem('outline_custom_model', customApiModel);
-    localStorage.setItem('outline_ai_prompt', aiPrompt);
+  const saveSettingsForm = (newSettings) => {
+    setSettings(prev => ({ ...prev, ...newSettings }));
     setShowSettings(false);
     showToast("設定已儲存");
   };
 
-  const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : kepanTree;
+  const currentRenderData = focusId ? [findNodeInKepanTree(kepanTree, focusId)].filter(Boolean) : (Array.isArray(kepanTree) ? kepanTree : INITIAL_EMPTY_KEPAN_TREE);
   const currentBreadcrumbPath = focusId ? findPathInKepanTree(kepanTree, focusId) : null;
-  const isDark = themeKey === 'dark' || themeKey === 'midnight';
 
   const renderContinuousSplitText = (nodes) => {
     return nodes.map(node => (
       <div key={`split-${node.id}`} id={`split-content-${node.id}`} className="mb-6 group transition-colors duration-500 rounded p-2">
-        <h3 className={`font-bold text-lg mb-2 ${themeConfig.bold}`}>{node.title}</h3>
+        <h3 className={`font-bold text-lg mb-2 ${themeConfig.bold}`}>{String(node.title || '')}</h3>
         {node.content && (
-           <div className={`leading-relaxed whitespace-pre-wrap ${themeConfig.text}`} dangerouslySetInnerHTML={{ __html: formatRichText(node.content, themeConfig) }} />
+           <div className={`leading-relaxed whitespace-pre-wrap ${themeConfig.text}`} dangerouslySetInnerHTML={{ __html: formatRichText(String(node.content), themeConfig) }} />
         )}
         {node.note && (
           <div className={`mt-2 p-3 text-sm rounded-lg border-l-4 shadow-sm ${themeConfig.noteBg}`}>
             <div className="font-bold opacity-70 mb-1 flex items-center gap-1"><Leaf size={12}/> 札記</div>
-            <div dangerouslySetInnerHTML={{ __html: formatRichText(node.note, themeConfig) }} />
+            <div dangerouslySetInnerHTML={{ __html: formatRichText(String(node.note), themeConfig) }} />
           </div>
         )}
         {node.children && node.children.length > 0 && (
@@ -1060,7 +1144,7 @@ export default function App() {
           <div key={`map-${node.id}`} className="flex flex-col">
             <div className={`py-1 px-2 rounded font-medium flex items-center gap-2 ${themeConfig.panelBg} ${themeConfig.bold}`}>
               <div className={`w-2 h-2 rounded-full ${themeConfig.bold.split(' ')[0].replace('text-', 'bg-')}`}></div>
-              {node.title || '(未命名節點)'}
+              {String(node.title || '(未命名節點)')}
             </div>
             {node.children && node.children.length > 0 && (
               <div className={`ml-4 pl-4 border-l ${themeConfig.border} mt-2`}>
@@ -1073,10 +1157,13 @@ export default function App() {
     );
   };
 
+  if (!isCloudLoaded) {
+    return <div className="min-h-screen flex items-center justify-center text-stone-500">載入環境中...</div>;
+  }
+
   return (
     <div className={`min-h-screen flex flex-col font-sans transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`}>
       
-      {/* Toast Notification */}
       {toastMessage && (
         <div className={`fixed bottom-6 right-6 px-4 py-3 rounded shadow-lg z-50 flex items-center gap-3 animate-in slide-in-from-bottom-5 fade-in ${isDark ? 'bg-stone-200 text-stone-900' : 'bg-stone-800 text-white'}`}>
           <span className="text-sm font-medium">{toastMessage}</span>
@@ -1084,7 +1171,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Header 工具列 */}
+      {syncStatus === 'saving' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-yellow-500 text-white text-xs px-3 py-1 rounded-full shadow z-50 animate-pulse">雲端儲存中...</div>}
+      {syncStatus === 'saved' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-teal-500 text-white text-xs px-3 py-1 rounded-full shadow z-50">雲端已同步 ✓</div>}
+      {syncStatus === 'error' && <div className="fixed top-2 right-1/2 translate-x-1/2 bg-red-500 text-white text-xs px-3 py-1 rounded-full shadow z-50">雲端儲存失敗</div>}
+
       <header className={`shadow-sm px-6 py-3 flex flex-wrap justify-between items-center sticky top-0 z-20 gap-4 border-b ${themeConfig.headerBg} ${themeConfig.border}`}>
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold flex items-center gap-2">
@@ -1116,7 +1206,6 @@ export default function App() {
 
           <div className={`w-px h-4 mx-1 ${themeConfig.border}`}></div>
 
-          {/* 主題下拉選單 */}
           <div className="relative">
              <button onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)} className={`p-1.5 rounded-md flex items-center gap-1 opacity-80 ${themeConfig.btnHover} transition-colors`} title="切換沉浸主題">
                <Palette size={18}/>
@@ -1126,8 +1215,8 @@ export default function App() {
                   {Object.entries(THEMES).map(([key, theme]) => (
                     <button 
                       key={key} 
-                      onClick={() => { setThemeKey(key); setIsThemeMenuOpen(false); }}
-                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${themeKey === key ? theme.bold : theme.text} ${theme.btnHover}`}
+                      onClick={() => { saveSettingsForm({ themeKey: key }); setIsThemeMenuOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${settings.themeKey === key ? theme.bold : theme.text} ${theme.btnHover}`}
                     >
                       {theme.name}
                     </button>
@@ -1148,27 +1237,145 @@ export default function App() {
             <FolderOpen size={16} /> <span className="hidden sm:inline">開啟</span>
             <input type="file" accept=".json" onChange={handleImportFromFile} className="hidden" />
           </label>
-          <button onClick={handleExportToFile} className={`flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white rounded shadow-sm transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`} title="匯出為 JSON">
-            <Save size={16} /> <span className="hidden sm:inline">存檔</span>
-          </button>
+          <div className="relative group/export">
+            <button className={`flex items-center gap-1 px-4 py-1.5 text-sm font-medium text-white rounded shadow-sm transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`}>
+              <DownloadCloud size={16} /> <span className="hidden sm:inline">匯出</span>
+            </button>
+            <div className={`absolute top-full right-0 mt-1 w-48 rounded shadow-xl border opacity-0 group-hover/export:opacity-100 pointer-events-none group-hover/export:pointer-events-auto transition-opacity z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder} overflow-hidden`}>
+               <button onClick={handleCopyMarkdown} className={`w-full text-left px-4 py-3 text-sm flex items-center gap-2 ${themeConfig.btnHover}`}><Copy size={14}/> 複製 Notion 格式</button>
+               <div className={`h-px w-full ${themeConfig.border}`}></div>
+               <button onClick={handleExportToFile} className={`w-full text-left px-4 py-3 text-sm flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={14}/> 備份 JSON 檔</button>
+            </div>
+          </div>
         </div>
       </header>
+
+      {/* 互動式對話消文 Modal */}
+      {explainData && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className={`w-full max-w-2xl rounded-xl shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border flex flex-col h-[85vh]`}>
+            <div className={`flex justify-between items-center p-4 border-b ${themeConfig.panelBorder}`}>
+              <h2 className="text-lg font-bold flex items-center gap-2"><Sparkles size={18} className="text-purple-500"/> AI 智慧消文法師</h2>
+              <button onClick={() => setExplainData(null)} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
+            </div>
+            
+            <div className={`p-4 border-b ${themeConfig.panelBorder} bg-purple-500/5`}>
+              <div className="text-xs font-bold opacity-60 mb-2 tracking-wider">📜 探討段落：</div>
+              <div className={`p-3 rounded-lg text-sm border-l-4 border-purple-500/40 ${isDark ? 'bg-black/30' : 'bg-white shadow-sm'}`}>{explainData.contextText}</div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              {explainData.messages.slice(1).map((msg, idx) => (
+                <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`text-xs opacity-50 mb-1 px-1 ${msg.role === 'user' ? 'text-right' : ''}`}>
+                     {msg.role === 'user' ? '您' : 'AI 法師'}
+                  </div>
+                  <div className={`max-w-[85%] p-4 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user' 
+                      ? `${isDark ? 'bg-teal-900/60' : 'bg-teal-50'} border ${themeConfig.border} rounded-tr-sm`
+                      : `${isDark ? 'bg-stone-800' : 'bg-stone-100'} rounded-tl-sm shadow-sm`
+                  }`}>
+                    {msg.role === 'user' ? msg.parts[0].text : (
+                      <div dangerouslySetInnerHTML={{ __html: formatRichText(msg.parts[0].text, themeConfig) }} />
+                    )}
+                  </div>
+                </div>
+              ))}
+              {explainData.loading && (
+                <div className="flex flex-col items-start">
+                  <div className="text-xs opacity-50 mb-1 px-1">AI 法師</div>
+                  <div className={`max-w-[85%] p-4 rounded-2xl rounded-tl-sm ${isDark ? 'bg-stone-800' : 'bg-stone-100'}`}>
+                     <div className="flex gap-1 items-center h-4">
+                       <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce"></span>
+                       <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.2s'}}></span>
+                       <span className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: '0.4s'}}></span>
+                     </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className={`p-4 border-t ${themeConfig.panelBorder}`}>
+              <div className="relative flex items-center">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendChat(); }}
+                  placeholder="向 AI 法師追問這段話的細節或生活應用..."
+                  disabled={explainData.loading}
+                  className={`w-full py-3 pl-4 pr-12 rounded-full border outline-none transition-shadow focus:ring-2 focus:ring-purple-400 ${isDark ? 'bg-stone-800 border-stone-700 text-white placeholder-stone-500' : 'bg-stone-50 border-stone-200 text-stone-800'}`}
+                />
+                <button 
+                  onClick={handleSendChat}
+                  disabled={explainData.loading || !chatInput.trim()}
+                  className={`absolute right-2 p-2 rounded-full transition-colors ${!chatInput.trim() || explainData.loading ? 'opacity-30 cursor-not-allowed' : 'text-white bg-purple-500 hover:bg-purple-600 shadow-md'}`}
+                >
+                  <Send size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 高畫質金句卡 Modal */}
+      {quoteCardNode && (
+        <div className="fixed inset-0 bg-stone-900/90 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+          <div className="flex flex-col items-center max-w-lg w-full gap-6">
+            <div className="flex w-full justify-between items-center px-2">
+               <h3 className="text-white font-bold tracking-widest text-sm flex items-center gap-2">
+                  <ImageIcon size={16}/> 法語金句卡
+               </h3>
+               <button onClick={() => setQuoteCardNode(null)} className="p-2 text-white/70 hover:text-white transition-colors bg-white/10 rounded-full"><X size={18}/></button>
+            </div>
+            
+            <div id="quote-card-element" className={`w-full aspect-square ${THEMES[settings.themeKey].cardBg} rounded-3xl shadow-2xl p-10 md:p-14 flex flex-col justify-center relative overflow-hidden border border-white/20`}>
+               <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-teal-400 via-emerald-500 to-sky-500"></div>
+               <div className={`absolute top-8 right-8 ${themeConfig.bold} opacity-10`}><Leaf size={64}/></div>
+               
+               <h2 className={`text-2xl md:text-3xl font-bold mb-6 z-10 ${themeConfig.bold} tracking-wide leading-tight`}>{String(quoteCardNode.title || '')}</h2>
+               
+               {quoteCardNode.content && (
+                 <p className={`text-lg md:text-xl leading-[1.8] z-10 ${themeConfig.text} font-serif`} dangerouslySetInnerHTML={{ __html: formatRichText(String(quoteCardNode.content), themeConfig) }}></p>
+               )}
+               
+               {quoteCardNode.note && (
+                 <div className={`mt-8 p-5 rounded-2xl border-l-4 z-10 ${themeConfig.noteBg} bg-opacity-80 backdrop-blur-md shadow-sm`}>
+                   <div className="text-xs font-bold opacity-60 mb-2 tracking-widest uppercase">📝 札記 / Insight</div>
+                   <div className="text-sm italic leading-relaxed" dangerouslySetInnerHTML={{ __html: formatRichText(String(quoteCardNode.note), themeConfig) }}></div>
+                 </div>
+               )}
+               <div className="absolute bottom-8 left-10 text-[10px] font-bold opacity-30 tracking-[0.2em] uppercase flex items-center gap-1.5">
+                 <ListTree size={12}/> 聞思科判筆記
+               </div>
+            </div>
+
+            <button 
+              onClick={downloadQuoteCard}
+              className="flex items-center gap-2 px-8 py-3 bg-white text-stone-900 rounded-full font-bold shadow-xl hover:scale-105 hover:bg-teal-50 transition-all"
+            >
+              <Download size={18}/> 儲存高畫質圖片
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 設定面板 Modal */}
       {showSettings && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border`}>
+          <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border max-h-[90vh] overflow-y-auto`}>
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2"><Settings size={20} className="opacity-60"/> 偏好與 AI 設定</h2>
               <button onClick={() => setShowSettings(false)} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
             </div>
-            
+
             <div className="mb-6">
-              <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1"/> Google Gemini API Key (支援多組金鑰)</label>
+              <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1"/> Google Gemini API Key (支援多組)</label>
               <textarea 
-                value={userApiKey} 
-                onChange={(e) => setUserApiKey(e.target.value)}
-                placeholder="輸入您的 API 金鑰。若有多組，請用逗號 (,) 分隔以啟用輪替機制避開限制。"
+                value={settings.apiKeys} 
+                onChange={(e) => setSettings(prev => ({...prev, apiKeys: e.target.value}))}
+                placeholder="輸入您的 API 金鑰。若有多組，請用逗號 (,) 分隔以啟用輪替避開限制。"
                 rows={2}
                 className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
               />
@@ -1179,8 +1386,8 @@ export default function App() {
                 <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>指定模型</label>
                 <select 
                   className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
-                  onChange={(e) => setUserApiModel(e.target.value)}
-                  value={userApiModel}
+                  onChange={(e) => setSettings(prev => ({...prev, apiModel: e.target.value}))}
+                  value={settings.apiModel}
                 >
                   {AI_MODELS.map((m) => (
                     <option key={m.value} value={m.value}>{m.label}</option>
@@ -1188,13 +1395,13 @@ export default function App() {
                 </select>
               </div>
               
-              {userApiModel === 'custom' && (
+              {settings.apiModel === 'custom' && (
                 <div className="flex-1 animate-in fade-in">
                   <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
                   <input 
                     type="text" 
-                    value={customApiModel} 
-                    onChange={(e) => setCustomApiModel(e.target.value)}
+                    value={settings.customModel} 
+                    onChange={(e) => setSettings(prev => ({...prev, customModel: e.target.value}))}
                     placeholder="如: gemini-4-flash"
                     className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
                   />
@@ -1206,8 +1413,8 @@ export default function App() {
               <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1"/> 自訂 AI 拆分提示詞 (System Prompt)</label>
               <select 
                 className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                value={AI_PROMPT_PRESETS.find(p => p.value === aiPrompt) ? aiPrompt : "custom"}
+                onChange={(e) => setSettings(prev => ({...prev, aiPrompt: e.target.value}))}
+                value={AI_PROMPT_PRESETS.find(p => p.value === settings.aiPrompt) ? settings.aiPrompt : "custom"}
               >
                 {AI_PROMPT_PRESETS.map((preset, idx) => (
                   <option key={idx} value={preset.value}>{preset.label}</option>
@@ -1215,21 +1422,21 @@ export default function App() {
                 <option value="custom">✍️ 自訂提示詞...</option>
               </select>
               <textarea
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
+                value={settings.aiPrompt}
+                onChange={(e) => setSettings(prev => ({...prev, aiPrompt: e.target.value}))}
                 rows={6}
                 className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`}
               />
             </div>
 
             <div className="flex justify-end">
-              <button onClick={saveSettings} className={`px-6 py-2 text-white rounded font-medium transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`}>確認並儲存</button>
+              <button onClick={() => saveSettingsForm({})} className={`px-6 py-2 text-white rounded font-medium transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`}>確認並儲存</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Breadcrumbs - 加入下拉選單機制 */}
+      {/* Breadcrumbs */}
       {focusId && currentBreadcrumbPath && (
         <div className={`border-b px-6 py-2 flex flex-wrap items-center gap-2 text-sm sticky top-[60px] z-10 ${themeConfig.panelBg} ${themeConfig.border}`}>
           <button onClick={() => setFocusId(null)} className={`hover:opacity-80 flex items-center gap-1 font-medium ${themeConfig.highlight} bg-opacity-30 px-2 py-1 rounded`}>
@@ -1246,7 +1453,7 @@ export default function App() {
                     onClick={() => setFocusId(crumb.id)} 
                     className={`hover:opacity-80 px-2 py-1 transition-colors rounded-l ${idx === currentBreadcrumbPath.length - 1 ? `font-bold bg-opacity-40 ${themeConfig.highlight}` : ''}`}
                   >
-                    {crumb.title || '(無標題)'}
+                    {String(crumb.title || '(無標題)')}
                   </button>
                   {dropdownOptions.length > 0 && (
                     <button
@@ -1264,7 +1471,7 @@ export default function App() {
                           className={`w-full text-left px-4 py-2 text-sm truncate transition-colors ${themeConfig.btnHover} ${themeConfig.bold}`}
                           onClick={(e) => { e.stopPropagation(); setFocusId(opt.id); setActiveBreadcrumbDropdown(null); }}
                         >
-                          {opt.title || '(無標題)'}
+                          {String(opt.title || '(無標題)')}
                         </button>
                       ))}
                     </div>
@@ -1288,7 +1495,7 @@ export default function App() {
              <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
                 {currentRenderData.map(rootNode => (
                   <TreeNode 
-                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
+                    key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys}
                     expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
                     deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
                   />
@@ -1302,7 +1509,7 @@ export default function App() {
           <div className={`w-full max-w-4xl p-8 rounded-lg shadow-sm border min-h-[80vh] ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
             {currentRenderData.map(rootNode => (
               <TreeNode 
-                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} userApiKey={userApiKey}
+                key={rootNode.id} kepanNode={rootNode} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys}
                 expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
                 deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={kepanTreeActions} showToast={showToast}
               />
