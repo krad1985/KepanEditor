@@ -22,6 +22,7 @@ import {
   markdownToTree,
 } from './utils/markdownUtils';
 import { callAIChat, callImagenAPI } from './utils/aiUtils';
+import { formatRichText } from './utils/formatUtils';
 
 /* ---- Hooks ---- */
 import { useUndoRedo } from './hooks/useUndoRedo';
@@ -368,57 +369,57 @@ export default function App() {
         const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(clean);
         if (parsed.summary || parsed.goldenSentences || parsed.tags) {
-          // 建立分析子樹
+          // 建立摘要與標籤節點（置於根節點最前方）
           const analysisId = generateUniqueId();
           const analysisNode = {
-            id: analysisId,
-            title: '📋 AI 整文分析',
-            content: '',
-            note: '',
+            id: analysisId, title: '📋 AI 整文分析', content: '', note: '',
             children: [
               { id: generateUniqueId(), title: '📝 全文摘要', content: parsed.summary || '', note: '', children: [] },
             ],
           };
-
-          if (parsed.goldenSentences?.length > 0) {
-            analysisNode.children.push({
-              id: generateUniqueId(),
-              title: '💬 金句摘錄',
-              content: '',
-              note: '',
-              children: parsed.goldenSentences.map(s => ({
-                id: generateUniqueId(),
-                title: s.source || '金句',
-                content: s.text || '',
-                note: '',
-                children: [],
-              })),
-            });
-          }
-
           if (parsed.tags?.length > 0) {
             analysisNode.children.push({
-              id: generateUniqueId(),
-              title: '🏷 建議標籤',
+              id: generateUniqueId(), title: '🏷 建議標籤',
               content: parsed.tags.map(t => `#${t.replace(/\s+/g, '')}`).join(' '),
-              note: '',
-              children: [],
+              note: '', children: [],
             });
           }
 
-          // 插入到根節點的第一個子節點位置（全文開頭）
+          // 在同一筆 commitChange 中：插入分析節點 + 金句標底線
           const rootId = kepanTree[0]?.id;
           commitChange(t => {
             const c = deepCloneKepanTree(t);
-            if (c[0]) {
-              if (!c[0].children) c[0].children = [];
-              c[0].children.unshift(analysisNode);
+            if (!c[0]) return t;
+
+            // ——— 金句標底線：在原文中以 ==…== 標記 ———
+            if (parsed.goldenSentences?.length > 0) {
+              // 遞迴走訪所有節點，找到匹配內容
+              const visit = (nodes) => {
+                for (const n of nodes) {
+                  if (n.content) {
+                    for (const gs of parsed.goldenSentences) {
+                      if (!gs.text) continue;
+                      const escaped = gs.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      const re = new RegExp(escaped, 'g');
+                      if (re.test(n.content)) {
+                        n.content = n.content.replace(re, `==${gs.text}==`);
+                      }
+                    }
+                  }
+                  if (n.children) visit(n.children);
+                }
+              };
+              visit(c);
             }
+
+            // ——— 插入分析節點（摘要＋標籤）至根節點最前方 ———
+            if (!c[0].children) c[0].children = [];
+            c[0].children.unshift(analysisNode);
             return c;
           });
 
           setExpandedTreeNodes(p => new Set(p).add(rootId).add(analysisId));
-          showToast('AI 分析完成，已插入至文件開頭！');
+          showToast('AI 分析完成！摘要已置頂，金句已在原文中標示。');
         } else throw new Error('缺少必要欄位');
       } catch (e) {
         showToast(`AI 分析格式解析失敗：${e.message}`);
@@ -441,8 +442,8 @@ export default function App() {
   const splitContentRender = (nodes) => nodes?.map(n => (
     <div key={`split-${n.id}`} id={`split-content-${n.id}`} className="mb-6 group transition-colors duration-500 rounded p-2">
       <h3 className={`font-bold text-lg mb-2 ${themeConfig.bold}`}>{String(n.title || '')}</h3>
-      {n.content && <div className={`leading-relaxed whitespace-pre-wrap ${themeConfig.text}`} dangerouslySetInnerHTML={{ __html: n.content.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>') }} />}
-      {n.note && <div className={`mt-2 p-3 text-sm rounded-lg border-l-4 shadow-sm ${themeConfig.noteBg}`}><div className="font-bold opacity-70 mb-1 flex items-center gap-1">📖 札記</div><div dangerouslySetInnerHTML={{ __html: n.note.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br/>') }} /></div>}
+      {n.content && <div className={`leading-relaxed whitespace-pre-wrap ${themeConfig.text}`} dangerouslySetInnerHTML={{ __html: formatRichText(n.content, themeConfig) }} />}
+      {n.note && <div className={`mt-2 p-3 text-sm rounded-lg border-l-4 shadow-sm ${themeConfig.noteBg}`}><div className="font-bold opacity-70 mb-1 flex items-center gap-1">📖 札記</div><div dangerouslySetInnerHTML={{ __html: formatRichText(n.note, themeConfig) }} /></div>}
       {n.children?.length > 0 && <div className={`mt-4 pl-4 border-l-2 ${themeConfig.border}`}>{splitContentRender(n.children)}</div>}
     </div>
   ));
