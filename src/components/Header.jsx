@@ -24,7 +24,7 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
   const toggleExport = useCallback(() => {
     if (!exportOpen && exportBtnRef.current) {
       const r = exportBtnRef.current.getBoundingClientRect();
-      setDropdownPos(p => ({ ...p, export: { top: r.bottom + 4, left: r.right - 160 } }));
+      setDropdownPos(p => ({ ...p, export: { top: r.bottom + 4, left: r.left } }));
     }
     setExportOpen(p => !p);
   }, [exportOpen]);

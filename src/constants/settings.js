@@ -21,6 +21,9 @@ export const FONT_OPTIONS = [
   { label: '自然手寫 (Handwriting)', value: 'font-hand' },
   { label: '傳統明體 (Serif)', value: 'font-serif' },
   { label: '典雅楷體 (Kai)', value: 'font-kai' },
+  { label: '等寬辨析 (Monospace)', value: 'font-mono' },
+  { label: '思源黑體 (Noto Sans)', value: 'font-noto' },
+  { label: '霞鶩文楷 (LXGW)', value: 'font-lxgw' },
 ];
 
 export const FONT_STYLES = {
@@ -29,6 +32,9 @@ export const FONT_STYLES = {
   'font-hand': '"Klee One", "Bradley Hand", "Chalkboard SE", "Comic Sans MS", "Hannotate TC", cursive',
   'font-serif': '"Noto Serif TC", "PMingLiU", "MingLiU", serif',
   'font-kai': '"DFKai-SB", "BiauKai", "Kaiti TC", "KaiTi", serif',
+  'font-mono': '"JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", "Courier New", monospace',
+  'font-noto': '"Noto Sans TC", "Source Han Sans TC", "Noto Sans SC", "Microsoft YaHei", "PingFang TC", "Hiragino Sans GB", sans-serif',
+  'font-lxgw': '"LXGW WenKai TC", "LXGW WenKai", "KaiTi", "DFKai-SB", serif',
 };
 
 export const STORAGE_KEYS = {
