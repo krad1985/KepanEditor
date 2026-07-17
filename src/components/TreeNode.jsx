@@ -121,6 +121,8 @@ const TreeNode = memo(({
           )}
 
           {isContentVisible && mode !== 'split' && (
+            /* 原文模式：若無內文又有子科判，直接跳過空白輸入區，讓子科判緊接標題 */
+            (mode === 'text' && !hasContent && hasChildren) ? null : (
             <div className="relative group/text w-full">
               <SmartTextarea value={String(kepanNode.content || '')} onChange={val => actions.updateKepanNode(kepanNode.id, 'content', val)}
                 onSplit={(cs, ct, isShift) => { isShift ? actions.splitTextToChildKepanNode(kepanNode.id, cs, ct) : actions.splitTextToSiblingKepanNode(kepanNode.id, cs, ct); }}
@@ -135,6 +137,7 @@ const TreeNode = memo(({
                 </div>
               )}
             </div>
+            )
           )}
 
           {isNoteVisible && (

@@ -155,7 +155,7 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
         <div className={`fixed w-28 rounded-md shadow-xl border overflow-hidden z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}
           style={{ top: dropdownPos.theme.top, left: dropdownPos.theme.left }}>
           {Object.entries(THEMES).map(([k, t]) => (
-            <button key={k} onClick={() => { onSelectTheme(k); onToggleThemeMenu(); }} className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${activeThemeKey === k ? t.bold : t.text} ${t.btnHover}`}>{t.name}</button>
+            <button key={k} onClick={() => { onSelectTheme(k); onToggleThemeMenu(); }} className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${activeThemeKey === k ? themeConfig.bold : themeConfig.text} ${themeConfig.btnHover}`}>{t.name}</button>
           ))}
         </div>
       )}
