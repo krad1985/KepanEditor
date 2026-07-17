@@ -1,16 +1,14 @@
-export const callGeminiChatAPI = async (messages, systemInstruction, settings, envFallbackKey = '', retries = 2) => {
+/* Gemini 原生 API 呼叫 */
+const callGeminiChat = async (messages, systemInstruction, settings, envFallbackKey) => {
   const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
   if (!key) return null;
-
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
   const payload = {
     contents: messages,
     ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
   };
-
-  let lastErr = '';
-  for (let attempt = 0; attempt < retries; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -21,9 +19,60 @@ export const callGeminiChatAPI = async (messages, systemInstruction, settings, e
       if (text) return text;
       throw new Error('回傳為空');
     } catch (e) {
-      lastErr = e.message;
-      if (attempt < retries - 1) await new Promise(r => setTimeout(r, 1500));
+      if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
+      else throw e;
     }
+  }
+  return null;
+};
+
+/* OpenRouter API 呼叫 (相容 OpenAI Chat Completions 格式) */
+const callOpenRouterChat = async (messages, systemInstruction, settings, envFallbackKey) => {
+  const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
+  const key = keys[0] || envFallbackKey;
+  if (!key) return null;
+  const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
+  /* 將 Gemini 格式 messages 轉成 OpenAI 格式 */
+  const oaiMessages = [];
+  if (systemInstruction) oaiMessages.push({ role: 'system', content: systemInstruction });
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      oaiMessages.push({ role: 'user', content: msg.parts.map(p => p.text).join('\n') });
+    } else if (msg.role === 'model') {
+      oaiMessages.push({ role: 'assistant', content: msg.parts.map(p => p.text).join('\n') });
+    }
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+          'HTTP-Referer': window.location.origin,
+          'X-Title': 'KepanEditor',
+        },
+        body: JSON.stringify({ model, messages: oaiMessages }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content;
+      if (text) return text;
+      throw new Error('回傳為空');
+    } catch (e) {
+      if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
+      else throw e;
+    }
+  }
+  return null;
+};
+
+/* 統一的 AI 呼叫入口 */
+export const callAIChat = async (messages, systemInstruction, settings, envFallbackKey = '') => {
+  if (!settings.apiProvider || settings.apiProvider === 'gemini') {
+    return callGeminiChat(messages, systemInstruction, settings, envFallbackKey);
+  } else if (settings.apiProvider === 'openrouter') {
+    return callOpenRouterChat(messages, systemInstruction, settings, envFallbackKey);
   }
   return null;
 };

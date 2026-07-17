@@ -1,5 +1,6 @@
 export const DEFAULT_SETTINGS = {
   themeKey: 'default',
+  apiProvider: 'gemini',
   apiKeys: '',
   apiModel: 'gemini-2.5-flash',
   customModel: '',
@@ -7,11 +8,26 @@ export const DEFAULT_SETTINGS = {
   aiPrompt: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`,
 };
 
-export const AI_MODELS = [
-  { label: 'Gemini 2.5 Flash (預設推薦)', value: 'gemini-2.5-flash' },
-  { label: 'Gemini 3.5 Flash', value: 'gemini-3.5-flash' },
-  { label: 'Gemini 3.1 Flash Lite', value: 'gemini-3.1-flash-lite' },
-  { label: 'Gemini 3 Flash Preview', value: 'gemini-3-flash-preview' },
+export const AI_PROVIDERS = [
+  { label: 'Google Gemini', value: 'gemini', keyLabel: 'Gemini API Key', keyPlaceholder: '輸入您的 Gemini API 金鑰。可多組逗號分隔以輪替避開限制。' },
+  { label: 'OpenRouter (多模型聚合)', value: 'openrouter', keyLabel: 'OpenRouter API Key', keyPlaceholder: '輸入 OpenRouter API 金鑰 (免費註冊，可存取多種模型)' },
+];
+
+export const GEMINI_MODELS = [
+  { label: 'Gemini 2.5 Flash (預設推薦・快速便宜)', value: 'gemini-2.5-flash' },
+  { label: 'Gemini 1.5 Flash (免費配額充裕)', value: 'gemini-1.5-flash' },
+  { label: 'Gemini 1.5 Pro (深度推理)', value: 'gemini-1.5-pro' },
+  { label: 'Gemini 2.0 Flash Exp (實驗性・免費)', value: 'gemini-2.0-flash-exp' },
+  { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' },
+];
+
+export const OPENROUTER_MODELS = [
+  { label: 'Google Gemini 2.0 Flash Exp (OpenRouter 免費)', value: 'google/gemini-2.0-flash-exp:free' },
+  { label: 'Mistral 7B Instruct (OpenRouter 免費)', value: 'mistralai/mistral-7b-instruct:free' },
+  { label: 'Llama 3.2 3B Instruct (OpenRouter 免費)', value: 'meta-llama/llama-3.2-3b-instruct:free' },
+  { label: 'Google Gemini 2.5 Flash', value: 'google/gemini-2.5-flash' },
+  { label: 'DeepSeek V3', value: 'deepseek/deepseek-chat' },
+  { label: 'Qwen 2.5 72B Instruct', value: 'qwen/qwen-2.5-72b-instruct' },
   { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' },
 ];
 

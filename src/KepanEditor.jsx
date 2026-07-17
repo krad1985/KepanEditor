@@ -21,7 +21,7 @@ import {
   convertToBulletMarkdown,
   markdownToTree,
 } from './utils/markdownUtils';
-import { callGeminiChatAPI, callImagenAPI } from './utils/aiUtils';
+import { callAIChat, callImagenAPI } from './utils/aiUtils';
 
 /* ---- Hooks ---- */
 import { useUndoRedo } from './hooks/useUndoRedo';
@@ -198,7 +198,7 @@ export default function App() {
     if (!node?.content) return;
     setIsAILoadingId(nid);
     const msgs = [{ role: 'user', parts: [{ text: `原文內容：\n${node.content}` }] }];
-    const text = await callGeminiChatAPI(msgs, settings.aiPrompt, settings, envApiKey);
+    const text = await callAIChat(msgs, settings.aiPrompt, settings, envApiKey);
     if (text) {
       try {
         const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -215,7 +215,7 @@ export default function App() {
   const explainText = useCallback(async (sel, ctx) => {
     const prompt = `請用淺顯易懂的現代白話文進行「消文解義」。\n\n【原文段落脈絡】：\n${ctx}\n\n【使用者欲請教的字句】：\n「${sel}」\n\n請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明。請確保解釋符合上下文的語境。`;
     setExplainData({ contextText: sel, fullContext: ctx, messages: [{ role: 'user', parts: [{ text: prompt }] }], loading: true });
-    const r = await callGeminiChatAPI([{ role: 'user', parts: [{ text: prompt }] }], EXPLAIN_SYSTEM_PROMPT, settings, envApiKey);
+    const r = await callAIChat([{ role: 'user', parts: [{ text: prompt }] }], EXPLAIN_SYSTEM_PROMPT, settings, envApiKey);
     if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
     else { setExplainData(null); showToast('呼叫 AI 失敗，請檢查 API 金鑰設定。'); }
   }, [settings, showToast]);
@@ -225,7 +225,7 @@ export default function App() {
     const um = { role: 'user', parts: [{ text: chatInput }] };
     const up = [...explainData.messages, um];
     setExplainData(p => ({ ...p, messages: up, loading: true })); setChatInput('');
-    const r = await callGeminiChatAPI(up, EXPLAIN_FOLLOWUP_PROMPT, settings, envApiKey);
+    const r = await callAIChat(up, EXPLAIN_FOLLOWUP_PROMPT, settings, envApiKey);
     if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
     else setExplainData(p => ({ ...p, loading: false }));
   }, [chatInput, explainData, settings]);
