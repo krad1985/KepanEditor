@@ -65,35 +65,6 @@ const extractJsonFromText = (text) => {
   return clean;
 };
 
-/* ---- 共用輔助：模糊比對金句（忽略空白/標點） ——— */
-const _norm = (s) => s.replace(/[\s\u3000，。、；：！？「」『』【】（）《》…—\-.,;:!?()\[\]{}"'"]/g, '');
-const findAndMarkSentence = (content, sentence) => {
-  if (!content || !sentence) return content;
-  // 1. 精確 regex 匹配
-  const esc = sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(esc).test(content)) {
-    return content.replace(new RegExp(esc, 'g'), `==${sentence}==`);
-  }
-  // 2. 忽略空白/標點的模糊匹配
-  const nc = _norm(content), ns = _norm(sentence);
-  if (!ns || !nc.includes(ns)) return content;
-  // 從 norm 對應回原文位置，找到對應的原文片段來標記
-  let origIdx = 0, normIdx = 0, startOrig = -1;
-  while (origIdx < content.length && normIdx < ns.length) {
-    const ch = content[origIdx];
-    const nch = _norm(ch);
-    if (nch.length === 0) { origIdx++; continue; }
-    if (startOrig === -1) startOrig = origIdx;
-    if (nch === ns[normIdx]) { normIdx++; origIdx++; }
-    else { normIdx = 0; startOrig = -1; }
-  }
-  if (startOrig !== -1 && normIdx >= ns.length) {
-    const matched = content.slice(startOrig, origIdx);
-    return content.slice(0, startOrig) + `==${matched}==` + content.slice(origIdx);
-  }
-  return content;
-};
-
 export default function App() {
   /* ===== 初始化 ===== */
   const [initialTree] = useState(() => {
@@ -422,7 +393,7 @@ export default function App() {
       try {
         const clean = extractJsonFromText(text);
         const parsed = JSON.parse(clean);
-        if (parsed.summary || parsed.goldenSentences || parsed.tags) {
+        if (parsed.summary || parsed.tags) {
           // 建立分析節點（摘要＋標籤）
           const analysisId = generateUniqueId();
           const analysisNode = {
@@ -439,35 +410,15 @@ export default function App() {
             });
           }
 
-          // 在同一筆 commitChange 中：插入分析節點 + 金句標底線
+          // 插入分析節點至根節點 siblings 的最前方（全文開頭）
           commitChange(t => {
             const c = deepCloneKepanTree(t);
-            if (!c[0]) return t;
-
-            // ——— 金句標底線：在原文中以 ==…== 標記（模糊匹配） ———
-            if (parsed.goldenSentences?.length > 0) {
-              const visit = (nodes) => {
-                for (const n of nodes) {
-                  if (n.content) {
-                    for (const gs of parsed.goldenSentences) {
-                      if (!gs.text) continue;
-                      n.content = findAndMarkSentence(n.content, gs.text);
-                    }
-                  }
-                  if (n.children) visit(n.children);
-                }
-              };
-              visit(c);
-            }
-
-            // ——— 插入分析節點至根節點 siblings 的最前方（全文開頭） ———
             c.unshift(analysisNode);
             return c;
           });
 
           setExpandedTreeNodes(p => new Set(p).add(analysisId));
-          const gsCount = parsed.goldenSentences?.length || 0;
-          showToast(`AI 分析完成！摘要＋標籤已置頂，${gsCount} 句金句已標示。`);
+          showToast('AI 分析完成！摘要＋標籤已置頂。');
         } else throw new Error('缺少必要欄位');
       } catch (e) {
         showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 150)}`);
