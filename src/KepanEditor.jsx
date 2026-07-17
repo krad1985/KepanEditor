@@ -5,7 +5,7 @@ import { ListTree, Wand2 } from 'lucide-react';
 import { THEMES, getTheme } from './constants/themes';
 import { DEFAULT_SETTINGS, STORAGE_KEYS, FONT_STYLES } from './constants/settings';
 import { INITIAL_EMPTY_KEPAN_TREE } from './constants/defaults';
-import { EXPLAIN_SYSTEM_PROMPT, EXPLAIN_FOLLOWUP_PROMPT } from './constants/prompts';
+import { EXPLAIN_SYSTEM_PROMPT, EXPLAIN_FOLLOWUP_PROMPT, FULL_ANALYSIS_SYSTEM_PROMPT } from './constants/prompts';
 
 /* ---- 工具 ---- */
 import {
@@ -38,6 +38,7 @@ import QuoteCardModal from './components/QuoteCardModal';
 import Toast from './components/Toast';
 import LoadingOverlay from './components/LoadingOverlay';
 import ShortcutModal from './components/ShortcutModal';
+import AIAnalysisModal from './components/AIAnalysisModal';
 
 const envApiKey = '';
 
@@ -73,6 +74,9 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState(null);
   const toastTimer = useRef(null);
 
   const themeConfig = getTheme(settings.themeKey);
@@ -339,6 +343,49 @@ export default function App() {
     showToast('已從選取文字建立子節點');
   }, [commitChange, showToast]);
 
+  /* ===== AI 整文分析 ===== */
+  const collectAllText = useCallback((nodes) => {
+    let parts = [];
+    for (const n of nodes) {
+      const t = (n.title || '').trim();
+      const c = (n.content || '').trim();
+      if (t || c) parts.push({ title: t, content: c || t });
+      if (n.children?.length) parts = parts.concat(collectAllText(n.children));
+    }
+    return parts;
+  }, []);
+
+  const handleFullAnalysis = useCallback(async () => {
+    const sections = collectAllText(kepanTree);
+    if (sections.length === 0) { showToast('檔案中無內容可供分析'); return; }
+
+    const documentText = sections.map(s =>
+      s.title ? `【${s.title}】\n${s.content || ''}` : s.content
+    ).join('\n\n').substring(0, 15000); // 防超長文件截斷
+
+    setIsAnalyzing(true);
+    setAnalysisError(null);
+    setAnalysisResult(null);
+
+    const msgs = [{ role: 'user', parts: [{ text: documentText }] }];
+    const text = await callAIChat(msgs, FULL_ANALYSIS_SYSTEM_PROMPT, settings, envApiKey);
+    if (text) {
+      try {
+        const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(clean);
+        if (parsed.summary || parsed.goldenSentences || parsed.tags) {
+          setAnalysisResult(parsed);
+          showToast('AI 整文分析完成！');
+        } else throw new Error('缺少必要欄位');
+      } catch (e) {
+        setAnalysisError(`格式解析失敗：${e.message}。AI 原始回覆：${text.substring(0, 200)}`);
+      }
+    } else {
+      setAnalysisError('AI 無回應，請檢查 API 金鑰設定。');
+    }
+    setIsAnalyzing(false);
+  }, [kepanTree, settings, collectAllText, showToast]);
+
   const commonActions = {
     updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode,
     moveNode, deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode,
@@ -361,7 +408,7 @@ export default function App() {
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} isDark={isDark} />
       <LoadingOverlay visible={!!isAILoadingId} isDark={isDark} />
-      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} />
+      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} onAnalyze={handleFullAnalysis} />
       <Breadcrumbs path={currentBreadcrumbPath} activeDropdownId={activeBreadcrumbDropdown} onSetFocus={setFocusId} onToggleDropdown={setActiveBreadcrumbDropdown} onClearFocus={handleClearFocus} themeConfig={themeConfig} />
       <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => { setActiveBreadcrumbDropdown(null); setIsThemeMenuOpen(false); }}>
         {mode === 'map' ? (
@@ -383,6 +430,7 @@ export default function App() {
       <ExplainModal explainData={explainData} onClose={() => setExplainData(null)} chatInput={chatInput} onChatInputChange={setChatInput} onSendChat={handleSendChat} isDark={isDark} themeConfig={themeConfig} />
       <QuoteCardModal quoteCardNode={quoteCardNode} aiBgImage={aiBgImage} isGeneratingBg={isGeneratingBg} onClose={() => { setQuoteCardNode(null); setAiBgImage(null); }} onDownload={downloadQuoteCard} onGenerateBg={generateCardBackground} themeConfig={themeConfig} settingsThemeKey={settings.themeKey} />
       <ShortcutModal visible={showShortcuts} onClose={() => setShowShortcuts(false)} themeConfig={themeConfig} isDark={isDark} />
+      <AIAnalysisModal visible={!!analysisResult || isAnalyzing} onClose={() => { setAnalysisResult(null); setAnalysisError(null); }} result={analysisResult} isLoading={isAnalyzing} error={analysisError} themeConfig={themeConfig} isDark={isDark} />
     </div>
   );
 }

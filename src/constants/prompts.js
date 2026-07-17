@@ -34,3 +34,17 @@ export const EXPLAIN_SYSTEM_PROMPT =
 export const EXPLAIN_FOLLOWUP_PROMPT =
   '你是一位精通藏傳五大論的佛學助理法師。'
   + '請針對使用者的追問給予耐心且生活化的解答。使用 Markdown 排版。';
+
+export const FULL_ANALYSIS_SYSTEM_PROMPT =
+  '你是一位精通佛典的 AI 分析師。你將收到一份完整的佛學科判文件（包含各節標題與內容）。'
+  + '請仔細閱讀全文，完成以下三項任務：\n'
+  + '1. 全文摘要（150 字內，把握核心要旨）\n'
+  + '2. 標示金句：挑出文中最重要的 3–5 句原文，附上該句所在節點標題\n'
+  + '3. 建議標籤：給出 3–6 個精準標籤（如修行主題、經論名稱、核心概念）\n'
+  + '必須嚴格回傳以下 JSON 格式（不要 Markdown 包裝，純 JSON）：\n'
+  + '{\n'
+  + '  "summary": "⋯",\n'
+  + '  "goldenSentences": [ { "text": "金句原文", "source": "所在節點標題" } ],\n'
+  + '  "tags": ["標籤1", "標籤2", "標籤3"]\n'
+  + '}\n'
+  + '注意：如果某篇文章是白話開示或非正式語錄，請確保金句確實是值得摘錄的重點句，不要勉強。若無適合金句，goldenSentences 可為空陣列。';

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ListTree, BookText, Columns, Map, Undo2, Redo2, Palette, Settings, FilePlus, FolderOpen, DownloadCloud, Copy, Save, Search, Keyboard, X, ChevronsUpDown, ChevronsDownUp } from 'lucide-react';
+import { ListTree, BookText, Columns, Map, Undo2, Redo2, Palette, Settings, FilePlus, FolderOpen, DownloadCloud, Copy, Save, Search, Keyboard, X, ChevronsUpDown, ChevronsDownUp, Sparkles } from 'lucide-react';
 
 const MODES = [
   { key: 'text', label: '原文', icon: BookText },
@@ -8,7 +8,7 @@ const MODES = [
   { key: 'map', label: '鳥瞰', icon: Map },
 ];
 
-const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect }) => {
+const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect, onAnalyze }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const searchRef = useRef(null);
@@ -127,6 +127,9 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
 
         {/* 快捷鍵 */}
         <button onClick={onOpenShortcuts} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="快捷鍵一覽"><Keyboard size={14} /></button>
+
+        {/* AI 整文分析 */}
+        <button onClick={onAnalyze} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="AI 整文分析：摘要・金句・標籤"><Sparkles size={14} /></button>
 
         {/* 主題 (觸發按鈕) */}
         <span ref={themeBtnRef}>
