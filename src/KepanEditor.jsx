@@ -42,6 +42,23 @@ import ShortcutModal from './components/ShortcutModal';
 
 const envApiKey = '';
 
+/* ---- 共用輔助：從 AI 回覆中萃取出 JSON ——— */
+const extractJsonFromText = (text) => {
+  // 1. 移除 Markdown 程式碼標記
+  let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+  // 2. 嘗試找 JSON 物件 { ... } 或陣列 [ ... ]
+  const firstBrace = clean.indexOf('{');
+  const lastBrace = clean.lastIndexOf('}');
+  const firstBracket = clean.indexOf('[');
+  const lastBracket = clean.lastIndexOf(']');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    clean = clean.slice(firstBrace, lastBrace + 1);
+  } else if (firstBracket !== -1 && lastBracket > firstBracket) {
+    clean = clean.slice(firstBracket, lastBracket + 1);
+  }
+  return clean;
+};
+
 export default function App() {
   /* ===== 初始化 ===== */
   const [initialTree] = useState(() => {
@@ -202,13 +219,15 @@ export default function App() {
     const text = await callAIChat(msgs, settings.aiPrompt, settings, envApiKey);
     if (text) {
       try {
-        const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const clean = extractJsonFromText(text);
         const gen = JSON.parse(clean);
         if (!Array.isArray(gen)) throw new Error('非陣列');
         commitChange(t => { const c = deepCloneKepanTree(t); const n = findNodeInKepanTree(c, nid); if (n) { n.content = ''; n.children = [...gen.map(g => ({ id: generateUniqueId(), title: String(g.title || '新科判'), content: String(g.content || ''), note: String(g.note || ''), children: [] })), ...(n.children || [])]; return c; } return t; });
         setExpandedTreeNodes(p => new Set(p).add(nid));
         showToast('AI 拆分完成！');
-      } catch { showToast('AI 回傳格式解析失敗，已阻擋寫入以防止系統崩潰。'); }
+      } catch (e) {
+        showToast(`AI 回傳格式解析失敗：${e.message}。摘要：${text.substring(0, 120)}`);
+      }
     }
     setIsAILoadingId(null);
   }, [kepanTree, settings, commitChange, showToast]);
@@ -366,7 +385,7 @@ export default function App() {
     const text = await callAIChat(msgs, FULL_ANALYSIS_SYSTEM_PROMPT, settings, envApiKey);
     if (text) {
       try {
-        const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const clean = extractJsonFromText(text);
         const parsed = JSON.parse(clean);
         if (parsed.summary || parsed.goldenSentences || parsed.tags) {
           // 建立摘要與標籤節點（置於根節點最前方）
@@ -422,7 +441,7 @@ export default function App() {
           showToast('AI 分析完成！摘要已置頂，金句已在原文中標示。');
         } else throw new Error('缺少必要欄位');
       } catch (e) {
-        showToast(`AI 分析格式解析失敗：${e.message}`);
+        showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 120)}`);
       }
     } else {
       showToast('AI 無回應，請檢查 API 金鑰設定。');
