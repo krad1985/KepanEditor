@@ -19,23 +19,12 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
 
   return (
     <header className={`shadow-sm px-2 py-1.5 flex items-center sticky top-0 z-20 gap-0.5 border-b overflow-x-auto flex-nowrap ${themeConfig.headerBg} ${themeConfig.border}`}
-      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', overflowY: 'visible' }}>
       {/* 標題 */}
       <h1 className="text-sm font-bold flex items-center gap-1 shrink-0 mr-1.5">
         <ListTree size={16} className={themeConfig.bold.split(' ')[0]} />
         <span className="hidden sm:inline">聞思</span>
       </h1>
-
-      {/* 模式切換 */}
-      <div className={`flex rounded-md p-0.5 border gap-0.5 shrink-0 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
-        {MODES.map(opt => { const Icon = opt.icon; const active = mode === opt.key; return (
-          <button key={opt.key} onClick={() => onModeChange(opt.key)}
-            className={`flex items-center justify-center w-7 h-6 rounded text-xs transition-colors ${active ? (isDark ? 'bg-stone-700 text-teal-300 shadow-sm' : 'bg-white shadow-sm text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`}
-            title={opt.label}><Icon size={14} /></button>
-        );})}
-      </div>
-
-      <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
 
       {/* 檔案操作 */}
       <button onClick={onNewFile} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="開新檔"><FilePlus size={14} /></button>
@@ -51,6 +40,17 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
           <div className={`h-px w-full ${themeConfig.border}`} />
           <button onClick={onExportMarkdown} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 匯出 Markdown (Obsidian)</button>
         </div>
+      </div>
+
+      <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
+
+      {/* 模式切換 */}
+      <div className={`flex rounded-md p-0.5 border gap-0.5 shrink-0 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
+        {MODES.map(opt => { const Icon = opt.icon; const active = mode === opt.key; return (
+          <button key={opt.key} onClick={() => onModeChange(opt.key)}
+            className={`flex items-center justify-center w-7 h-6 rounded text-xs transition-colors ${active ? (isDark ? 'bg-stone-700 text-teal-300 shadow-sm' : 'bg-white shadow-sm text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`}
+            title={opt.label}><Icon size={14} /></button>
+        );})}
       </div>
 
       <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
