@@ -38,7 +38,6 @@ import QuoteCardModal from './components/QuoteCardModal';
 import Toast from './components/Toast';
 import LoadingOverlay from './components/LoadingOverlay';
 import ShortcutModal from './components/ShortcutModal';
-import AIAnalysisModal from './components/AIAnalysisModal';
 
 const envApiKey = '';
 
@@ -74,9 +73,6 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState(null);
   const toastTimer = useRef(null);
 
   const themeConfig = getTheme(settings.themeKey);
@@ -361,11 +357,9 @@ export default function App() {
 
     const documentText = sections.map(s =>
       s.title ? `【${s.title}】\n${s.content || ''}` : s.content
-    ).join('\n\n').substring(0, 15000); // 防超長文件截斷
+    ).join('\n\n').substring(0, 15000);
 
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-    setAnalysisResult(null);
+    setIsAILoadingId('__full_analysis__');
 
     const msgs = [{ role: 'user', parts: [{ text: documentText }] }];
     const text = await callAIChat(msgs, FULL_ANALYSIS_SYSTEM_PROMPT, settings, envApiKey);
@@ -374,17 +368,66 @@ export default function App() {
         const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(clean);
         if (parsed.summary || parsed.goldenSentences || parsed.tags) {
-          setAnalysisResult(parsed);
-          showToast('AI 整文分析完成！');
+          // 建立分析子樹
+          const analysisId = generateUniqueId();
+          const analysisNode = {
+            id: analysisId,
+            title: '📋 AI 整文分析',
+            content: '',
+            note: '',
+            children: [
+              { id: generateUniqueId(), title: '📝 全文摘要', content: parsed.summary || '', note: '', children: [] },
+            ],
+          };
+
+          if (parsed.goldenSentences?.length > 0) {
+            analysisNode.children.push({
+              id: generateUniqueId(),
+              title: '💬 金句摘錄',
+              content: '',
+              note: '',
+              children: parsed.goldenSentences.map(s => ({
+                id: generateUniqueId(),
+                title: s.source || '金句',
+                content: s.text || '',
+                note: '',
+                children: [],
+              })),
+            });
+          }
+
+          if (parsed.tags?.length > 0) {
+            analysisNode.children.push({
+              id: generateUniqueId(),
+              title: '🏷 建議標籤',
+              content: parsed.tags.map(t => `#${t.replace(/\s+/g, '')}`).join(' '),
+              note: '',
+              children: [],
+            });
+          }
+
+          // 插入到根節點的第一個子節點位置（全文開頭）
+          const rootId = kepanTree[0]?.id;
+          commitChange(t => {
+            const c = deepCloneKepanTree(t);
+            if (c[0]) {
+              if (!c[0].children) c[0].children = [];
+              c[0].children.unshift(analysisNode);
+            }
+            return c;
+          });
+
+          setExpandedTreeNodes(p => new Set(p).add(rootId).add(analysisId));
+          showToast('AI 分析完成，已插入至文件開頭！');
         } else throw new Error('缺少必要欄位');
       } catch (e) {
-        setAnalysisError(`格式解析失敗：${e.message}。AI 原始回覆：${text.substring(0, 200)}`);
+        showToast(`AI 分析格式解析失敗：${e.message}`);
       }
     } else {
-      setAnalysisError('AI 無回應，請檢查 API 金鑰設定。');
+      showToast('AI 無回應，請檢查 API 金鑰設定。');
     }
-    setIsAnalyzing(false);
-  }, [kepanTree, settings, collectAllText, showToast]);
+    setIsAILoadingId(null);
+  }, [kepanTree, settings, collectAllText, commitChange, showToast]);
 
   const commonActions = {
     updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode,
@@ -430,7 +473,6 @@ export default function App() {
       <ExplainModal explainData={explainData} onClose={() => setExplainData(null)} chatInput={chatInput} onChatInputChange={setChatInput} onSendChat={handleSendChat} isDark={isDark} themeConfig={themeConfig} />
       <QuoteCardModal quoteCardNode={quoteCardNode} aiBgImage={aiBgImage} isGeneratingBg={isGeneratingBg} onClose={() => { setQuoteCardNode(null); setAiBgImage(null); }} onDownload={downloadQuoteCard} onGenerateBg={generateCardBackground} themeConfig={themeConfig} settingsThemeKey={settings.themeKey} />
       <ShortcutModal visible={showShortcuts} onClose={() => setShowShortcuts(false)} themeConfig={themeConfig} isDark={isDark} />
-      <AIAnalysisModal visible={!!analysisResult || isAnalyzing} onClose={() => { setAnalysisResult(null); setAnalysisError(null); }} result={analysisResult} isLoading={isAnalyzing} error={analysisError} themeConfig={themeConfig} isDark={isDark} />
     </div>
   );
 }
