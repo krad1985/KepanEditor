@@ -37,7 +37,7 @@ const TreeNode = memo(({
   kepanNode, depth, mode, themeConfig, apiKeys,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId, actions, showToast,
-  readingMode, searchQuery,
+  searchQuery,
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
@@ -65,15 +65,13 @@ const TreeNode = memo(({
 
   const sp = mode === 'text' ? 'mb-0' : 'mb-2';
   const pl = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${themeConfig.border} pl-4` : 'ml-0';
-  const isReadOnly = readingMode;
-
   return (
     <div className={`${sp} ${pl} ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'} transition-all duration-200`}>
       <div onDragOver={e => actions.handleDragOver(e, kepanNode.id)} onDrop={e => actions.handleDrop(e, kepanNode.id)}
         className={`group relative flex items-start gap-1 ${mode === 'text' ? 'p-0 -ml-0' : 'p-1 -ml-1'} transition-colors ${dz}`}
         onClick={() => { if (mode === 'split') { const el = document.getElementById(`split-content-${kepanNode.id}`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('ring-2','ring-teal-400','bg-teal-500/10'); setTimeout(() => el.classList.remove('ring-2','ring-teal-400','bg-teal-500/10'), 1500); } } }}>
 
-        {!isReadOnly && (mode === 'outline' || mode === 'split') && (
+        {(mode === 'outline' || mode === 'split') && (
           <div draggable onDragStart={e => actions.handleDragStart(e, kepanNode.id)} className="mt-1 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-stone-600"><GripVertical size={16} /></div>
         )}
 
@@ -90,8 +88,7 @@ const TreeNode = memo(({
               placeholder="輸入科判標題..."
               className={`font-bold bg-transparent border-b border-transparent focus:border-teal-500 focus:outline-none transition-all flex-1 min-w-[150px] ${colorClass} ${mode === 'text' ? `${textSizeClass} mt-4 mb-1 pb-0` : 'text-lg mb-1 pb-1'}`} />
 
-            {!isReadOnly && (
-              <div className={`flex items-center gap-1 shrink-0 ${mode === 'split' && !hasContent && !hasNote ? 'opacity-0' : ''}`}>
+            <div className={`flex items-center gap-1 shrink-0 ${mode === 'split' && !hasContent && !hasNote ? 'opacity-0' : ''}`}>
                 {mode === 'outline' && hasContent && (
                   <button onClick={e => { e.stopPropagation(); actions.toggleContent(kepanNode.id); }}
                     className={`p-1 rounded transition-colors ${isContentVisible ? 'bg-teal-500/20 text-teal-600' : 'text-stone-400 hover:bg-stone-500/20'}`} title={isContentVisible ? '隱藏內文' : '顯示內文'}><AlignLeft size={14} /></button>
@@ -111,11 +108,10 @@ const TreeNode = memo(({
                   <button onClick={e => { e.stopPropagation(); actions.setFocusId(kepanNode.id); }} className="p-1 text-stone-400 hover:text-teal-600 hover:bg-teal-500/20 rounded" title="聚焦此節點"><Target size={14} /></button>
                   <button onClick={e => { e.stopPropagation(); actions.setDeleteMenuId(deleteMenuId === kepanNode.id ? null : kepanNode.id); }} className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-500/20 rounded" title="刪除選單"><Trash2 size={14} /></button>
                 </div>
-              </div>
-            )}
+            </div>
           </div>
 
-          {deleteMenuId === kepanNode.id && !isReadOnly && (
+          {deleteMenuId === kepanNode.id && (
             <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
               <span className={`font-medium ml-1 ${themeConfig.text}`}>刪除選項：</span>
               <button onClick={() => actions.mergeUpKepanNode(kepanNode.id)} className="px-3 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 rounded transition-colors" title="刪除此標題，內文與子節點併入上一段">向上合併</button>
@@ -132,7 +128,7 @@ const TreeNode = memo(({
                 onCreateNode={(sel) => actions.createNodeFromSelection?.(kepanNode.id, sel)}
                 placeholder={mode === 'text' ? '在此輸入或貼上原文...' : '無內文'} themeConfig={themeConfig}
                 className={`w-full transition-all ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}`} />
-              {mode === 'text' && kepanNode.content && !isReadOnly && (
+              {mode === 'text' && kepanNode.content && (
                 <div className="absolute bottom-1 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0 flex gap-2">
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Enter 同層拆分</span>
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Shift+Enter 子層拆分</span>
@@ -157,7 +153,7 @@ const TreeNode = memo(({
             <TreeNode key={ch.id} kepanNode={ch} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
               expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
               deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
-              readingMode={readingMode} searchQuery={searchQuery} />
+              searchQuery={searchQuery} />
           ))}</div>
         </Collapsible>
       )}

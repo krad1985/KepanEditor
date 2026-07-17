@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ListTree, BookText, Columns, Map, Undo2, Redo2, Palette, Settings, FilePlus, FolderOpen, DownloadCloud, Copy, Save, Search, Eye, EyeOff, Keyboard, X, ChevronsUpDown, ChevronsDownUp } from 'lucide-react';
+import { ListTree, BookText, Columns, Map, Undo2, Redo2, Palette, Settings, FilePlus, FolderOpen, DownloadCloud, Copy, Save, Search, Keyboard, X, ChevronsUpDown, ChevronsDownUp } from 'lucide-react';
 
 const MODES = [
   { key: 'text', label: '原文', icon: BookText },
@@ -8,7 +8,7 @@ const MODES = [
   { key: 'map', label: '鳥瞰', icon: Map },
 ];
 
-const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, readingMode, onToggleReadingMode, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect }) => {
+const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
   const resultsRef = useRef(null);
@@ -33,6 +33,24 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
             className={`flex items-center justify-center w-7 h-6 rounded text-xs transition-colors ${active ? (isDark ? 'bg-stone-700 text-teal-300 shadow-sm' : 'bg-white shadow-sm text-teal-700') : `opacity-60 ${themeConfig.btnHover}`}`}
             title={opt.label}><Icon size={14} /></button>
         );})}
+      </div>
+
+      <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
+
+      {/* 檔案操作 */}
+      <button onClick={onNewFile} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="開新檔"><FilePlus size={14} /></button>
+      <label className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 cursor-pointer ${themeConfig.btnHover}`} title="開啟檔案">
+        <FolderOpen size={14} /><input type="file" accept=".json,.md,.markdown" onChange={onImportFile} className="hidden" />
+      </label>
+      <div className="relative shrink-0 group/export">
+        <button className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="匯出"><DownloadCloud size={14} /></button>
+        <div className={`absolute top-full right-0 mt-1 w-40 rounded shadow-xl border opacity-0 group-hover/export:opacity-100 pointer-events-none group-hover/export:pointer-events-auto transition-opacity z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder} overflow-hidden`}>
+          <button onClick={onCopyMarkdown} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Copy size={11} /> 複製 Markdown (Notion)</button>
+          <div className={`h-px w-full ${themeConfig.border}`} />
+          <button onClick={onExportJSON} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 備份 JSON</button>
+          <div className={`h-px w-full ${themeConfig.border}`} />
+          <button onClick={onExportMarkdown} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 匯出 Markdown (Obsidian)</button>
+        </div>
       </div>
 
       <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
@@ -76,13 +94,13 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
 
       <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
 
-      {/* 閱讀模式 */}
-      <button onClick={onToggleReadingMode} className={`p-1 rounded shrink-0 transition-colors ${readingMode ? 'text-teal-500' : 'opacity-60 hover:opacity-100'} ${themeConfig.btnHover}`}
-        title={readingMode ? '離開閱讀專注模式' : '閱讀專注模式'}>{readingMode ? <EyeOff size={14} /> : <Eye size={14} />}</button>
-
-      {/* 全部展開/收合 */}
-      <button onClick={onExpandAll} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="全部展開"><ChevronsDownUp size={14} /></button>
-      <button onClick={onCollapseAll} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="全部收合"><ChevronsUpDown size={14} /></button>
+      {/* 全部展開/收合 — 僅科判模式 */}
+      {mode === 'outline' && (
+        <>
+          <button onClick={onExpandAll} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="全部展開"><ChevronsDownUp size={14} /></button>
+          <button onClick={onCollapseAll} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="全部收合"><ChevronsUpDown size={14} /></button>
+        </>
+      )}
 
       {/* 快捷鍵 */}
       <button onClick={onOpenShortcuts} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="快捷鍵一覽"><Keyboard size={14} /></button>
@@ -101,24 +119,6 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
 
       {/* 設定 */}
       <button onClick={onOpenSettings} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="設定"><Settings size={14}/></button>
-
-      <div className={`w-px h-4 mx-0.5 shrink-0 ${themeConfig.border}`} />
-
-      {/* 檔案操作 */}
-      <button onClick={onNewFile} className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="開新檔"><FilePlus size={14} /></button>
-      <label className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 cursor-pointer ${themeConfig.btnHover}`} title="開啟檔案">
-        <FolderOpen size={14} /><input type="file" accept=".json,.md,.markdown" onChange={onImportFile} className="hidden" />
-      </label>
-      <div className="relative shrink-0 group/export">
-        <button className={`p-1 rounded shrink-0 opacity-60 hover:opacity-100 ${themeConfig.btnHover}`} title="匯出"><DownloadCloud size={14} /></button>
-        <div className={`absolute top-full right-0 mt-1 w-40 rounded shadow-xl border opacity-0 group-hover/export:opacity-100 pointer-events-none group-hover/export:pointer-events-auto transition-opacity z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder} overflow-hidden`}>
-          <button onClick={onCopyMarkdown} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Copy size={11} /> 複製 Markdown (Notion)</button>
-          <div className={`h-px w-full ${themeConfig.border}`} />
-          <button onClick={onExportJSON} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 備份 JSON</button>
-          <div className={`h-px w-full ${themeConfig.border}`} />
-          <button onClick={onExportMarkdown} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 匯出 Markdown (Obsidian)</button>
-        </div>
-      </div>
     </header>
   );
 };

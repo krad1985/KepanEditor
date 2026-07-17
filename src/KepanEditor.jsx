@@ -72,7 +72,6 @@ export default function App() {
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [readingMode, setReadingMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const toastTimer = useRef(null);
 
@@ -323,10 +322,6 @@ export default function App() {
     setExpandedTreeNodes(new Set());
   }, []);
 
-  const toggleReadingMode = useCallback(() => {
-    setReadingMode(p => !p);
-  }, []);
-
   const createNodeFromSelection = useCallback((parentId, selectedText) => {
     if (!selectedText.trim()) return;
     const nn = { id: generateUniqueId(), title: '選取片段', content: selectedText, note: '', children: [] };
@@ -366,7 +361,7 @@ export default function App() {
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} isDark={isDark} />
       <LoadingOverlay visible={!!isAILoadingId} isDark={isDark} />
-      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} readingMode={readingMode} onToggleReadingMode={toggleReadingMode} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} />
+      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} />
       <Breadcrumbs path={currentBreadcrumbPath} activeDropdownId={activeBreadcrumbDropdown} onSetFocus={setFocusId} onToggleDropdown={setActiveBreadcrumbDropdown} onClearFocus={handleClearFocus} themeConfig={themeConfig} />
       <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => { setActiveBreadcrumbDropdown(null); setIsThemeMenuOpen(false); }}>
         {mode === 'map' ? (
@@ -374,7 +369,7 @@ export default function App() {
         ) : mode === 'split' ? (
           <div className="w-full max-w-7xl flex gap-6 h-[80vh]">
             <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
-              {currentRenderData.map(rn => <TreeNode key={rn.id} kepanNode={rn} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys} expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes} deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={commonActions} showToast={showToast} readingMode={readingMode} searchQuery={searchQuery} />)}
+              {currentRenderData.map(rn => <TreeNode key={rn.id} kepanNode={rn} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys} expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes} deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={commonActions} showToast={showToast} searchQuery={searchQuery} />)}
             </div>
             <div className={`w-2/3 overflow-y-auto p-8 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>{splitContentRender(currentRenderData)}</div>
           </div>
