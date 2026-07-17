@@ -13,6 +13,8 @@ import {
   findNodeInKepanTree,
   findPathInKepanTree,
   generateUniqueId,
+  searchTreeNodes,
+  flattenTreeIds,
 } from './utils/treeUtils';
 import {
   treeToMarkdown,
@@ -35,6 +37,7 @@ import ExplainModal from './components/ExplainModal';
 import QuoteCardModal from './components/QuoteCardModal';
 import Toast from './components/Toast';
 import LoadingOverlay from './components/LoadingOverlay';
+import ShortcutModal from './components/ShortcutModal';
 
 const envApiKey = '';
 
@@ -68,6 +71,9 @@ export default function App() {
   const [chatInput, setChatInput] = useState('');
   const [isAILoadingId, setIsAILoadingId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [readingMode, setReadingMode] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const toastTimer = useRef(null);
 
   const themeConfig = getTheme(settings.themeKey);
@@ -93,10 +99,17 @@ export default function App() {
     const h = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); }
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.target.closest('textarea') && !e.target.closest('input')) {
+        setShowShortcuts(p => !p);
+      }
+      if (e.key === 'Escape') {
+        if (focusId) { setFocusId(null); setActiveBreadcrumbDropdown(null); }
+        if (showShortcuts) setShowShortcuts(false);
+      }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [undo, redo]);
+  }, [undo, redo, focusId, showShortcuts]);
 
   /* ===== Toast ===== */
   const showToast = useCallback((msg, dur = 5000) => {
@@ -277,7 +290,68 @@ export default function App() {
   const saveSettingsForm = useCallback(() => { setShowSettings(false); showToast('設定已儲存'); }, [showToast]);
   const handleSelectTheme = useCallback(k => { setSettings(pr => ({ ...pr, themeKey: k })); showToast(`主題切換：${THEMES[k].name}`); }, [showToast]);
 
-  const commonActions = { updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode, moveNode, deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode, splitTextToChildKepanNode, setFocusId, setDeleteMenuId, toggleTree, toggleContent, toggleNote, generateAISkeleton, handleDragStart, handleDragOver, handleDrop, openQuoteCard, explainText };
+  /* ===== 新功能：搜尋、展開/收合、閱讀模式、選取建節點 ===== */
+  const handleSearchChange = useCallback((q) => {
+    setSearchQuery(q);
+    if (q.trim()) {
+      const results = searchTreeNodes(kepanTree, q.trim());
+      setSearchResults(results);
+    } else {
+      setSearchResults([]);
+    }
+  }, [kepanTree]);
+  const [searchResults, setSearchResults] = useState([]);
+
+  const handleSearchSelect = useCallback((nodeId) => {
+    setFocusId(nodeId);
+    // 展開路徑上的所有節點
+    const path = findPathInKepanTree(kepanTree, nodeId);
+    if (path) {
+      setExpandedTreeNodes(prev => {
+        const next = new Set(prev);
+        path.forEach(p => next.add(p.id));
+        return next;
+      });
+    }
+  }, [kepanTree]);
+
+  const expandAll = useCallback(() => {
+    setExpandedTreeNodes(flattenTreeIds(kepanTree));
+  }, [kepanTree]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedTreeNodes(new Set());
+  }, []);
+
+  const toggleReadingMode = useCallback(() => {
+    setReadingMode(p => !p);
+  }, []);
+
+  const createNodeFromSelection = useCallback((parentId, selectedText) => {
+    if (!selectedText.trim()) return;
+    const nn = { id: generateUniqueId(), title: '選取片段', content: selectedText, note: '', children: [] };
+    commitChange(t => {
+      const c = deepCloneKepanTree(t);
+      const n = findNodeInKepanTree(c, parentId);
+      if (n) {
+        if (!n.children) n.children = [];
+        n.children.unshift(nn);
+        return c;
+      }
+      return t;
+    });
+    setExpandedTreeNodes(p => new Set(p).add(parentId));
+    showToast('已從選取文字建立子節點');
+  }, [commitChange, showToast]);
+
+  const commonActions = {
+    updateKepanNode, addSiblingKepanNode, indentKepanNode, outdentKepanNode,
+    moveNode, deleteKepanNode, mergeUpKepanNode, splitTextToSiblingKepanNode,
+    splitTextToChildKepanNode, setFocusId, setDeleteMenuId, toggleTree,
+    toggleContent, toggleNote, generateAISkeleton, handleDragStart,
+    handleDragOver, handleDrop, openQuoteCard, explainText,
+    createNodeFromSelection,
+  };
 
   const splitContentRender = (nodes) => nodes?.map(n => (
     <div key={`split-${n.id}`} id={`split-content-${n.id}`} className="mb-6 group transition-colors duration-500 rounded p-2">
@@ -292,7 +366,7 @@ export default function App() {
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} isDark={isDark} />
       <LoadingOverlay visible={!!isAILoadingId} isDark={isDark} />
-      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} />
+      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} readingMode={readingMode} onToggleReadingMode={toggleReadingMode} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} />
       <Breadcrumbs path={currentBreadcrumbPath} activeDropdownId={activeBreadcrumbDropdown} onSetFocus={setFocusId} onToggleDropdown={setActiveBreadcrumbDropdown} onClearFocus={handleClearFocus} themeConfig={themeConfig} />
       <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => { setActiveBreadcrumbDropdown(null); setIsThemeMenuOpen(false); }}>
         {mode === 'map' ? (
@@ -300,7 +374,7 @@ export default function App() {
         ) : mode === 'split' ? (
           <div className="w-full max-w-7xl flex gap-6 h-[80vh]">
             <div className={`w-1/3 overflow-y-auto p-6 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
-              {currentRenderData.map(rn => <TreeNode key={rn.id} kepanNode={rn} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys} expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes} deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={commonActions} showToast={showToast} />)}
+              {currentRenderData.map(rn => <TreeNode key={rn.id} kepanNode={rn} depth={0} mode={mode} themeConfig={themeConfig} apiKeys={settings.apiKeys} expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes} deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={commonActions} showToast={showToast} readingMode={readingMode} searchQuery={searchQuery} />)}
             </div>
             <div className={`w-2/3 overflow-y-auto p-8 rounded-lg shadow-sm border ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>{splitContentRender(currentRenderData)}</div>
           </div>
@@ -313,6 +387,7 @@ export default function App() {
       <SettingsPanel visible={showSettings} onClose={() => setShowSettings(false)} settings={settings} onSettingsChange={handleSettingsChange} onSave={saveSettingsForm} themeConfig={themeConfig} isDark={isDark} />
       <ExplainModal explainData={explainData} onClose={() => setExplainData(null)} chatInput={chatInput} onChatInputChange={setChatInput} onSendChat={handleSendChat} isDark={isDark} themeConfig={themeConfig} />
       <QuoteCardModal quoteCardNode={quoteCardNode} aiBgImage={aiBgImage} isGeneratingBg={isGeneratingBg} onClose={() => { setQuoteCardNode(null); setAiBgImage(null); }} onDownload={downloadQuoteCard} onGenerateBg={generateCardBackground} themeConfig={themeConfig} settingsThemeKey={settings.themeKey} />
+      <ShortcutModal visible={showShortcuts} onClose={() => setShowShortcuts(false)} themeConfig={themeConfig} isDark={isDark} />
     </div>
   );
 }

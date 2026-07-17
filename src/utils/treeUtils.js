@@ -48,3 +48,32 @@ export const countNodes = (treeNodes) => {
   }
   return count;
 };
+
+export const searchTreeNodes = (treeNodes, query) => {
+  const results = [];
+  const lowerQuery = query.toLowerCase();
+  const walk = (nodes, path = []) => {
+    for (const node of nodes) {
+      const currentPath = [...path, { id: node.id, title: node.title }];
+      if (node.title?.toLowerCase().includes(lowerQuery) ||
+          node.content?.toLowerCase().includes(lowerQuery) ||
+          node.note?.toLowerCase().includes(lowerQuery)) {
+        results.push({ node, path: currentPath });
+      }
+      if (node.children) walk(node.children, currentPath);
+    }
+  };
+  walk(treeNodes);
+  return results;
+};
+
+export const flattenTreeIds = (treeNodes) => {
+  const ids = new Set();
+  const walk = (ns) => {
+    for (const n of ns) {
+      if (n.children?.length) { ids.add(n.id); walk(n.children); }
+    }
+  };
+  walk(treeNodes);
+  return ids;
+};

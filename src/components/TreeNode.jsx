@@ -1,11 +1,43 @@
-import React, { memo } from 'react';
+import React, { memo, useRef, useEffect, useState } from 'react';
 import { ChevronRight, ChevronDown, GripVertical, Target, Trash2, AlignLeft, BookOpen, ImageIcon, Wand2, Leaf } from 'lucide-react';
 import SmartTextarea from './SmartTextarea';
+
+/* 平滑折疊 — 用 max-height + requestAnimationFrame 實現動畫 */
+const Collapsible = ({ isOpen, children }) => {
+  const [maxH, setMaxH] = useState(isOpen ? 'none' : '0');
+  const innerRef = useRef(null);
+
+  useEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    if (isOpen) {
+      const h = el.scrollHeight;
+      setMaxH(`${h + 20}px`);
+      const timer = setTimeout(() => setMaxH('none'), 300);
+      return () => clearTimeout(timer);
+    } else {
+      const h = el.scrollHeight;
+      if (h > 0) {
+        setMaxH(`${h + 20}px`);
+        requestAnimationFrame(() => requestAnimationFrame(() => setMaxH('0')));
+      } else {
+        setMaxH('0');
+      }
+    }
+  }, [isOpen]);
+
+  return (
+    <div className="overflow-hidden transition-all duration-300 ease-in-out" style={{ maxHeight: maxH }}>
+      <div ref={innerRef}>{children}</div>
+    </div>
+  );
+};
 
 const TreeNode = memo(({
   kepanNode, depth, mode, themeConfig, apiKeys,
   expandedTreeNodes, expandedContentNodes, expandedNoteNodes,
   deleteMenuId, dragInfo, isAILoadingId, actions, showToast,
+  readingMode, searchQuery,
 }) => {
   const isTreeExpanded = expandedTreeNodes.has(kepanNode.id);
   const isContentVisible = mode === 'text' || mode === 'split' || expandedContentNodes.has(kepanNode.id);
@@ -33,6 +65,7 @@ const TreeNode = memo(({
 
   const sp = mode === 'text' ? 'mb-0' : 'mb-2';
   const pl = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${themeConfig.border} pl-4` : 'ml-0';
+  const isReadOnly = readingMode;
 
   return (
     <div className={`${sp} ${pl} ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'} transition-all duration-200`}>
@@ -40,7 +73,7 @@ const TreeNode = memo(({
         className={`group relative flex items-start gap-1 ${mode === 'text' ? 'p-0 -ml-0' : 'p-1 -ml-1'} transition-colors ${dz}`}
         onClick={() => { if (mode === 'split') { const el = document.getElementById(`split-content-${kepanNode.id}`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('ring-2','ring-teal-400','bg-teal-500/10'); setTimeout(() => el.classList.remove('ring-2','ring-teal-400','bg-teal-500/10'), 1500); } } }}>
 
-        {(mode === 'outline' || mode === 'split') && (
+        {!isReadOnly && (mode === 'outline' || mode === 'split') && (
           <div draggable onDragStart={e => actions.handleDragStart(e, kepanNode.id)} className="mt-1 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-stone-600"><GripVertical size={16} /></div>
         )}
 
@@ -57,30 +90,32 @@ const TreeNode = memo(({
               placeholder="輸入科判標題..."
               className={`font-bold bg-transparent border-b border-transparent focus:border-teal-500 focus:outline-none transition-all flex-1 min-w-[150px] ${colorClass} ${mode === 'text' ? `${textSizeClass} mt-4 mb-1 pb-0` : 'text-lg mb-1 pb-1'}`} />
 
-            <div className={`flex items-center gap-1 shrink-0 ${mode === 'split' && !hasContent && !hasNote ? 'opacity-0' : ''}`}>
-              {mode === 'outline' && hasContent && (
-                <button onClick={e => { e.stopPropagation(); actions.toggleContent(kepanNode.id); }}
-                  className={`p-1 rounded transition-colors ${isContentVisible ? 'bg-teal-500/20 text-teal-600' : 'text-stone-400 hover:bg-stone-500/20'}`} title={isContentVisible ? '隱藏內文' : '顯示內文'}><AlignLeft size={14} /></button>
-              )}
-              {(mode === 'outline' || mode === 'text' || mode === 'split') && (hasNote || isNoteVisible || hasContent) && (
-                <button onClick={e => { e.stopPropagation(); actions.toggleNote(kepanNode.id); }}
-                  className={`p-1 rounded transition-colors ${isNoteVisible ? 'bg-amber-500/20 text-amber-600' : hasNote ? 'text-amber-500' : 'text-stone-400 hover:bg-stone-500/20 opacity-0 group-hover:opacity-100'}`} title="修行筆記 / 札記"><BookOpen size={14} /></button>
-              )}
-              {(hasContent || hasNote) && (
-                <button onClick={e => { e.stopPropagation(); actions.openQuoteCard(kepanNode); }} className="p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-sky-500 hover:bg-sky-500/20" title="生成金句卡"><ImageIcon size={14} /></button>
-              )}
-              {hasContent && mode !== 'split' && (
-                <button onClick={e => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }} disabled={isAILoadingId === kepanNode.id}
-                  className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-500 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`} title="AI 輔助骨架生成"><Wand2 size={14} /></button>
-              )}
-              <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ${mode === 'split' ? 'hidden' : ''}`}>
-                <button onClick={e => { e.stopPropagation(); actions.setFocusId(kepanNode.id); }} className="p-1 text-stone-400 hover:text-teal-600 hover:bg-teal-500/20 rounded" title="聚焦此節點"><Target size={14} /></button>
-                <button onClick={e => { e.stopPropagation(); actions.setDeleteMenuId(deleteMenuId === kepanNode.id ? null : kepanNode.id); }} className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-500/20 rounded" title="刪除選單"><Trash2 size={14} /></button>
+            {!isReadOnly && (
+              <div className={`flex items-center gap-1 shrink-0 ${mode === 'split' && !hasContent && !hasNote ? 'opacity-0' : ''}`}>
+                {mode === 'outline' && hasContent && (
+                  <button onClick={e => { e.stopPropagation(); actions.toggleContent(kepanNode.id); }}
+                    className={`p-1 rounded transition-colors ${isContentVisible ? 'bg-teal-500/20 text-teal-600' : 'text-stone-400 hover:bg-stone-500/20'}`} title={isContentVisible ? '隱藏內文' : '顯示內文'}><AlignLeft size={14} /></button>
+                )}
+                {(mode === 'outline' || mode === 'text' || mode === 'split') && (hasNote || isNoteVisible || hasContent) && (
+                  <button onClick={e => { e.stopPropagation(); actions.toggleNote(kepanNode.id); }}
+                    className={`p-1 rounded transition-colors ${isNoteVisible ? 'bg-amber-500/20 text-amber-600' : hasNote ? 'text-amber-500' : 'text-stone-400 hover:bg-stone-500/20 opacity-0 group-hover:opacity-100'}`} title="修行筆記 / 札記"><BookOpen size={14} /></button>
+                )}
+                {(hasContent || hasNote) && (
+                  <button onClick={e => { e.stopPropagation(); actions.openQuoteCard(kepanNode); }} className="p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-sky-500 hover:bg-sky-500/20" title="生成金句卡"><ImageIcon size={14} /></button>
+                )}
+                {hasContent && mode !== 'split' && (
+                  <button onClick={e => { e.stopPropagation(); actions.generateAISkeleton(kepanNode.id); }} disabled={isAILoadingId === kepanNode.id}
+                    className={`p-1 rounded transition-colors opacity-0 group-hover:opacity-100 text-purple-500 hover:bg-purple-500/20 ${isAILoadingId === kepanNode.id ? 'animate-pulse' : ''}`} title="AI 輔助骨架生成"><Wand2 size={14} /></button>
+                )}
+                <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ${mode === 'split' ? 'hidden' : ''}`}>
+                  <button onClick={e => { e.stopPropagation(); actions.setFocusId(kepanNode.id); }} className="p-1 text-stone-400 hover:text-teal-600 hover:bg-teal-500/20 rounded" title="聚焦此節點"><Target size={14} /></button>
+                  <button onClick={e => { e.stopPropagation(); actions.setDeleteMenuId(deleteMenuId === kepanNode.id ? null : kepanNode.id); }} className="p-1 text-stone-400 hover:text-red-500 hover:bg-red-500/20 rounded" title="刪除選單"><Trash2 size={14} /></button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          {deleteMenuId === kepanNode.id && (
+          {deleteMenuId === kepanNode.id && !isReadOnly && (
             <div className={`border shadow-lg rounded-md p-2 mb-2 flex gap-2 items-center text-sm z-10 relative animate-in fade-in slide-in-from-top-2 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
               <span className={`font-medium ml-1 ${themeConfig.text}`}>刪除選項：</span>
               <button onClick={() => actions.mergeUpKepanNode(kepanNode.id)} className="px-3 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-600 rounded transition-colors" title="刪除此標題，內文與子節點併入上一段">向上合併</button>
@@ -94,9 +129,10 @@ const TreeNode = memo(({
               <SmartTextarea value={String(kepanNode.content || '')} onChange={val => actions.updateKepanNode(kepanNode.id, 'content', val)}
                 onSplit={(cs, ct, isShift) => { isShift ? actions.splitTextToChildKepanNode(kepanNode.id, cs, ct) : actions.splitTextToSiblingKepanNode(kepanNode.id, cs, ct); }}
                 onExplain={(t, c) => actions.explainText(t, c)}
+                onCreateNode={(sel) => actions.createNodeFromSelection?.(kepanNode.id, sel)}
                 placeholder={mode === 'text' ? '在此輸入或貼上原文...' : '無內文'} themeConfig={themeConfig}
                 className={`w-full transition-all ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}`} />
-              {mode === 'text' && kepanNode.content && (
+              {mode === 'text' && kepanNode.content && !isReadOnly && (
                 <div className="absolute bottom-1 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0 flex gap-2">
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Enter 同層拆分</span>
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Shift+Enter 子層拆分</span>
@@ -115,12 +151,15 @@ const TreeNode = memo(({
         </div>
       </div>
 
-      {hasChildren && (mode === 'text' || mode === 'split' || isTreeExpanded) && (
-        <div className="mt-0">{kepanNode.children.map(ch => (
-          <TreeNode key={ch.id} kepanNode={ch} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
-            expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
-            deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast} />
-        ))}</div>
+      {hasChildren && (
+        <Collapsible isOpen={mode === 'text' || mode === 'split' || isTreeExpanded}>
+          <div className="mt-0">{kepanNode.children.map(ch => (
+            <TreeNode key={ch.id} kepanNode={ch} depth={depth + 1} mode={mode} themeConfig={themeConfig} apiKeys={apiKeys}
+              expandedTreeNodes={expandedTreeNodes} expandedContentNodes={expandedContentNodes} expandedNoteNodes={expandedNoteNodes}
+              deleteMenuId={deleteMenuId} dragInfo={dragInfo} isAILoadingId={isAILoadingId} actions={actions} showToast={showToast}
+              readingMode={readingMode} searchQuery={searchQuery} />
+          ))}</div>
+        </Collapsible>
       )}
     </div>
   );
