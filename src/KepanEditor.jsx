@@ -42,21 +42,56 @@ import ShortcutModal from './components/ShortcutModal';
 
 const envApiKey = '';
 
-/* ---- 共用輔助：從 AI 回覆中萃取出 JSON ——— */
+/* ---- 共用輔助：從 AI 回覆中萃取出 JSON（bracket-balancing） ——— */
 const extractJsonFromText = (text) => {
-  // 1. 移除 Markdown 程式碼標記
   let clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-  // 2. 嘗試找 JSON 物件 { ... } 或陣列 [ ... ]
-  const firstBrace = clean.indexOf('{');
-  const lastBrace = clean.lastIndexOf('}');
-  const firstBracket = clean.indexOf('[');
-  const lastBracket = clean.lastIndexOf(']');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    clean = clean.slice(firstBrace, lastBrace + 1);
-  } else if (firstBracket !== -1 && lastBracket > firstBracket) {
-    clean = clean.slice(firstBracket, lastBracket + 1);
+  // 找第一個 { 或 [
+  let startIdx = -1, openCh = '', closeCh = '';
+  const fb = clean.indexOf('{'), fa = clean.indexOf('[');
+  if (fb !== -1 && (fa === -1 || fb < fa)) { startIdx = fb; openCh = '{'; closeCh = '}'; }
+  else if (fa !== -1) { startIdx = fa; openCh = '['; closeCh = ']'; }
+  if (startIdx === -1) return clean;
+  // 逐字元平衡括號，正確找到對應的結束位置
+  let depth = 0, inStr = false, esc = false;
+  for (let i = startIdx; i < clean.length; i++) {
+    const ch = clean[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\' && inStr) { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (ch === openCh) depth++;
+    else if (ch === closeCh) { depth--; if (depth === 0) return clean.slice(startIdx, i + 1); }
   }
   return clean;
+};
+
+/* ---- 共用輔助：模糊比對金句（忽略空白/標點） ——— */
+const _norm = (s) => s.replace(/[\s\u3000，。、；：！？「」『』【】（）《》…—\-.,;:!?()\[\]{}"'"]/g, '');
+const findAndMarkSentence = (content, sentence) => {
+  if (!content || !sentence) return content;
+  // 1. 精確 regex 匹配
+  const esc = sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(esc).test(content)) {
+    return content.replace(new RegExp(esc, 'g'), `==${sentence}==`);
+  }
+  // 2. 忽略空白/標點的模糊匹配
+  const nc = _norm(content), ns = _norm(sentence);
+  if (!ns || !nc.includes(ns)) return content;
+  // 從 norm 對應回原文位置，找到對應的原文片段來標記
+  let origIdx = 0, normIdx = 0, startOrig = -1;
+  while (origIdx < content.length && normIdx < ns.length) {
+    const ch = content[origIdx];
+    const nch = _norm(ch);
+    if (nch.length === 0) { origIdx++; continue; }
+    if (startOrig === -1) startOrig = origIdx;
+    if (nch === ns[normIdx]) { normIdx++; origIdx++; }
+    else { normIdx = 0; startOrig = -1; }
+  }
+  if (startOrig !== -1 && normIdx >= ns.length) {
+    const matched = content.slice(startOrig, origIdx);
+    return content.slice(0, startOrig) + `==${matched}==` + content.slice(origIdx);
+  }
+  return content;
 };
 
 export default function App() {
@@ -388,7 +423,7 @@ export default function App() {
         const clean = extractJsonFromText(text);
         const parsed = JSON.parse(clean);
         if (parsed.summary || parsed.goldenSentences || parsed.tags) {
-          // 建立摘要與標籤節點（置於根節點最前方）
+          // 建立分析節點（摘要＋標籤）
           const analysisId = generateUniqueId();
           const analysisNode = {
             id: analysisId, title: '📋 AI 整文分析', content: '', note: '',
@@ -405,24 +440,18 @@ export default function App() {
           }
 
           // 在同一筆 commitChange 中：插入分析節點 + 金句標底線
-          const rootId = kepanTree[0]?.id;
           commitChange(t => {
             const c = deepCloneKepanTree(t);
             if (!c[0]) return t;
 
-            // ——— 金句標底線：在原文中以 ==…== 標記 ———
+            // ——— 金句標底線：在原文中以 ==…== 標記（模糊匹配） ———
             if (parsed.goldenSentences?.length > 0) {
-              // 遞迴走訪所有節點，找到匹配內容
               const visit = (nodes) => {
                 for (const n of nodes) {
                   if (n.content) {
                     for (const gs of parsed.goldenSentences) {
                       if (!gs.text) continue;
-                      const escaped = gs.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                      const re = new RegExp(escaped, 'g');
-                      if (re.test(n.content)) {
-                        n.content = n.content.replace(re, `==${gs.text}==`);
-                      }
+                      n.content = findAndMarkSentence(n.content, gs.text);
                     }
                   }
                   if (n.children) visit(n.children);
@@ -431,17 +460,17 @@ export default function App() {
               visit(c);
             }
 
-            // ——— 插入分析節點（摘要＋標籤）至根節點最前方 ———
-            if (!c[0].children) c[0].children = [];
-            c[0].children.unshift(analysisNode);
+            // ——— 插入分析節點至根節點 siblings 的最前方（全文開頭） ———
+            c.unshift(analysisNode);
             return c;
           });
 
-          setExpandedTreeNodes(p => new Set(p).add(rootId).add(analysisId));
-          showToast('AI 分析完成！摘要已置頂，金句已在原文中標示。');
+          setExpandedTreeNodes(p => new Set(p).add(analysisId));
+          const gsCount = parsed.goldenSentences?.length || 0;
+          showToast(`AI 分析完成！摘要＋標籤已置頂，${gsCount} 句金句已標示。`);
         } else throw new Error('缺少必要欄位');
       } catch (e) {
-        showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 120)}`);
+        showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 150)}`);
       }
     } else {
       showToast('AI 無回應，請檢查 API 金鑰設定。');
