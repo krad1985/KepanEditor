@@ -4,7 +4,7 @@ import { ChevronRight, Home, ChevronDown } from 'lucide-react';
 const Breadcrumbs = ({ path, activeDropdownId, onSetFocus, onToggleDropdown, onClearFocus, themeConfig }) => {
   if (!path?.length) return null;
   return (
-    <div className={`border-b px-6 py-2 flex flex-wrap items-center gap-2 text-sm sticky top-[60px] z-10 ${themeConfig.panelBg} ${themeConfig.border}`}>
+    <div className={`border-b px-3 py-1 flex flex-wrap items-center gap-1 text-xs sticky top-[36px] z-10 ${themeConfig.panelBg} ${themeConfig.border}`}>
       <button onClick={onClearFocus} className={`hover:opacity-80 flex items-center gap-1 font-medium ${themeConfig.highlight} bg-opacity-30 px-2 py-1 rounded`}><Home size={14} /> 根目錄</button>
       {path.map((crumb, idx) => {
         const opts = crumb.children || [];
