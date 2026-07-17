@@ -22,12 +22,17 @@ export const GEMINI_MODELS = [
 ];
 
 export const OPENROUTER_MODELS = [
-  { label: 'Google Gemini 2.0 Flash Exp (OpenRouter 免費)', value: 'google/gemini-2.0-flash-exp:free' },
-  { label: 'Mistral 7B Instruct (OpenRouter 免費)', value: 'mistralai/mistral-7b-instruct:free' },
-  { label: 'Llama 3.2 3B Instruct (OpenRouter 免費)', value: 'meta-llama/llama-3.2-3b-instruct:free' },
-  { label: 'Google Gemini 2.5 Flash', value: 'google/gemini-2.5-flash' },
-  { label: 'DeepSeek V3', value: 'deepseek/deepseek-chat' },
-  { label: 'Qwen 2.5 72B Instruct', value: 'qwen/qwen-2.5-72b-instruct' },
+  { label: '🔄 OpenRouter Free Router (自動選最佳免費模型)', value: 'openrouter/free' },
+  { label: '★ NVIDIA Nemotron 3 Ultra 550B (免費・1M 脈絡)', value: 'nvidia/nemotron-3-ultra-550b-a55b:free' },
+  { label: '★ NVIDIA Nemotron 3 Super 120B (免費・1M 脈絡)', value: 'nvidia/nemotron-3-super-120b-a12b:free' },
+  { label: '★ Qwen3 Coder (免費・1M 脈絡・程式碼)', value: 'qwen/qwen3-coder:free' },
+  { label: '★ Qwen3 Next 80B (免費・262K 脈絡)', value: 'qwen/qwen3-next-80b-a3b-instruct:free' },
+  { label: '★ OpenAI GPT-OSS 120B (免費・推理強)', value: 'openai/gpt-oss-120b:free' },
+  { label: '★ Poolside Laguna M.1 (免費・262K・程式碼)', value: 'poolside/laguna-m.1:free' },
+  { label: '★ Meta Llama 3.3 70B (免費・131K)', value: 'meta-llama/llama-3.3-70b-instruct:free' },
+  { label: '★ Google Gemma 4 31B (免費・多模態)', value: 'google/gemma-4-31b-it:free' },
+  { label: 'DeepSeek V4 Flash (付費・1M 脈絡・推理)', value: 'deepseek/deepseek-v4-flash' },
+  { label: 'DeepSeek V3 (付費)', value: 'deepseek/deepseek-chat' },
   { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' },
 ];
 
