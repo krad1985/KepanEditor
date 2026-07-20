@@ -3,7 +3,7 @@ const callGeminiChat = async (messages, systemInstruction, settings, envFallback
   const rawKey = settings.apiKeys?.gemini || '';
   const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
-  if (!key) return null;
+  if (!key) throw new Error('未設定 Gemini API 金鑰，請至設定頁面輸入。');
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
   const payload = {
     contents: messages,
@@ -14,11 +14,14 @@ const callGeminiChat = async (messages, systemInstruction, settings, envFallback
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`Gemini API ${res.status}：${errBody.substring(0, 200)}`);
+      }
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) return text;
-      throw new Error('回傳為空');
+      throw new Error('Gemini 回傳為空，可能觸發安全過濾');
     } catch (e) {
       if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
       else throw e;
@@ -32,7 +35,7 @@ const callOpenRouterChat = async (messages, systemInstruction, settings, envFall
   const rawKey = settings.apiKeys?.openrouter || '';
   const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
-  if (!key) return null;
+  if (!key) throw new Error('未設定 OpenRouter API 金鑰，請至設定頁面輸入。');
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
   /* 將 Gemini 格式 messages 轉成 OpenAI 格式 */
   const oaiMessages = [];
@@ -56,11 +59,14 @@ const callOpenRouterChat = async (messages, systemInstruction, settings, envFall
         },
         body: JSON.stringify({ model, messages: oaiMessages }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`OpenRouter API ${res.status}：${errBody.substring(0, 200)}`);
+      }
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       if (text) return text;
-      throw new Error('回傳為空');
+      throw new Error('OpenRouter 回傳為空');
     } catch (e) {
       if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
       else throw e;
@@ -74,7 +80,7 @@ const callZenChat = async (messages, systemInstruction, settings, envFallbackKey
   const rawKey = settings.apiKeys?.zen || '';
   const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
-  if (!key) return null;
+  if (!key) throw new Error('未設定 OpenCode Zen API 金鑰，請至設定頁面輸入。');
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
   const oaiMessages = [];
   if (systemInstruction) oaiMessages.push({ role: 'system', content: systemInstruction });
@@ -95,11 +101,14 @@ const callZenChat = async (messages, systemInstruction, settings, envFallbackKey
         },
         body: JSON.stringify({ model, messages: oaiMessages }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`OpenCode Zen API ${res.status}：${errBody.substring(0, 200)}`);
+      }
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
       if (text) return text;
-      throw new Error('回傳為空');
+      throw new Error('OpenCode Zen 回傳為空');
     } catch (e) {
       if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
       else throw e;
@@ -117,14 +126,14 @@ export const callAIChat = async (messages, systemInstruction, settings, envFallb
   } else if (settings.apiProvider === 'openrouter') {
     return callOpenRouterChat(messages, systemInstruction, settings, envFallbackKey);
   }
-  return null;
+  throw new Error(`不支援的 AI 提供者：${settings.apiProvider}`);
 };
 
 export const callImagenAPI = async (visualPrompt, settings, envFallbackKey = '') => {
   const rawKey = settings.apiKeys?.gemini || '';
   const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
-  if (!key) return null;
+  if (!key) throw new Error('未設定 Gemini API 金鑰，無法生成圖片。');
 
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${key}`, {
     method: 'POST',

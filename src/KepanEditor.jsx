@@ -230,19 +230,23 @@ export default function App() {
     const node = findNodeInKepanTree(kepanTree, nid);
     if (!node?.content) return;
     setIsAILoadingId(nid);
-    const msgs = [{ role: 'user', parts: [{ text: `原文內容：\n${node.content}` }] }];
-    const text = await callAIChat(msgs, settings.aiPrompt, settings, envApiKey);
-    if (text) {
-      try {
-        const clean = extractJsonFromText(text);
-        const gen = JSON.parse(clean);
-        if (!Array.isArray(gen)) throw new Error('非陣列');
-        commitChange(t => { const c = deepCloneKepanTree(t); const n = findNodeInKepanTree(c, nid); if (n) { n.content = ''; n.children = [...gen.map(g => ({ id: generateUniqueId(), title: String(g.title || '新科判'), content: String(g.content || ''), note: String(g.note || ''), children: [] })), ...(n.children || [])]; return c; } return t; });
-        setExpandedTreeNodes(p => new Set(p).add(nid));
-        showToast('AI 拆分完成！');
-      } catch (e) {
-        showToast(`AI 回傳格式解析失敗：${e.message}。摘要：${text.substring(0, 120)}`);
+    try {
+      const msgs = [{ role: 'user', parts: [{ text: `原文內容：\n${node.content}` }] }];
+      const text = await callAIChat(msgs, settings.aiPrompt, settings, envApiKey);
+      if (text) {
+        try {
+          const clean = extractJsonFromText(text);
+          const gen = JSON.parse(clean);
+          if (!Array.isArray(gen)) throw new Error('非陣列');
+          commitChange(t => { const c = deepCloneKepanTree(t); const n = findNodeInKepanTree(c, nid); if (n) { n.content = ''; n.children = [...gen.map(g => ({ id: generateUniqueId(), title: String(g.title || '新科判'), content: String(g.content || ''), note: String(g.note || ''), children: [] })), ...(n.children || [])]; return c; } return t; });
+          setExpandedTreeNodes(p => new Set(p).add(nid));
+          showToast('AI 拆分完成！');
+        } catch (e) {
+          showToast(`AI 回傳格式解析失敗：${e.message}。摘要：${text.substring(0, 120)}`);
+        }
       }
+    } catch (e) {
+      showToast(`AI 呼叫失敗：${e.message}`);
     }
     setIsAILoadingId(null);
   }, [kepanTree, settings, commitChange, showToast]);
@@ -250,9 +254,14 @@ export default function App() {
   const explainText = useCallback(async (sel, ctx) => {
     const prompt = `請用淺顯易懂的現代白話文進行「消文解義」。\n\n【原文段落脈絡】：\n${ctx}\n\n【使用者欲請教的字句】：\n「${sel}」\n\n請先給出「白話直譯」，再用一個「現代生活中的簡單例子」輔助說明。請確保解釋符合上下文的語境。`;
     setExplainData({ contextText: sel, fullContext: ctx, messages: [{ role: 'user', parts: [{ text: prompt }] }], loading: true });
-    const r = await callAIChat([{ role: 'user', parts: [{ text: prompt }] }], EXPLAIN_SYSTEM_PROMPT, settings, envApiKey);
-    if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
-    else { setExplainData(null); showToast('呼叫 AI 失敗，請檢查 API 金鑰設定。'); }
+    try {
+      const r = await callAIChat([{ role: 'user', parts: [{ text: prompt }] }], EXPLAIN_SYSTEM_PROMPT, settings, envApiKey);
+      if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
+      else { setExplainData(null); showToast('AI 回傳為空，請稍後再試。'); }
+    } catch (e) {
+      setExplainData(null);
+      showToast(`AI 呼叫失敗：${e.message}`);
+    }
   }, [settings, showToast]);
 
   const handleSendChat = useCallback(async () => {
@@ -260,10 +269,15 @@ export default function App() {
     const um = { role: 'user', parts: [{ text: chatInput }] };
     const up = [...explainData.messages, um];
     setExplainData(p => ({ ...p, messages: up, loading: true })); setChatInput('');
-    const r = await callAIChat(up, EXPLAIN_FOLLOWUP_PROMPT, settings, envApiKey);
-    if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
-    else setExplainData(p => ({ ...p, loading: false }));
-  }, [chatInput, explainData, settings]);
+    try {
+      const r = await callAIChat(up, EXPLAIN_FOLLOWUP_PROMPT, settings, envApiKey);
+      if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
+      else setExplainData(p => ({ ...p, loading: false }));
+    } catch (e) {
+      setExplainData(p => ({ ...p, loading: false }));
+      showToast(`AI 呼叫失敗：${e.message}`);
+    }
+  }, [chatInput, explainData, settings, showToast]);
 
   const openQuoteCard = useCallback(n => { setQuoteCardNode(n); setAiBgImage(null); }, []);
   const generateCardBackground = useCallback(async () => {
@@ -406,44 +420,48 @@ export default function App() {
 
     setIsAILoadingId('__full_analysis__');
 
-    const msgs = [{ role: 'user', parts: [{ text: documentText }] }];
-    const text = await callAIChat(msgs, FULL_ANALYSIS_SYSTEM_PROMPT, settings, envApiKey);
-    if (text) {
-      try {
-        const clean = extractJsonFromText(text);
-        const parsed = JSON.parse(clean);
-        if (parsed.summary || parsed.tags) {
-          // 建立分析節點（摘要＋標籤）
-          const analysisId = generateUniqueId();
-          const analysisNode = {
-            id: analysisId, title: '📋 AI 整文分析', content: '', note: '',
-            children: [
-              { id: generateUniqueId(), title: '📝 全文摘要', content: parsed.summary || '', note: '', children: [] },
-            ],
-          };
-          if (parsed.tags?.length > 0) {
-            analysisNode.children.push({
-              id: generateUniqueId(), title: '🏷 建議標籤',
-              content: parsed.tags.map(t => `#${t.replace(/\s+/g, '')}`).join(' '),
-              note: '', children: [],
+    try {
+      const msgs = [{ role: 'user', parts: [{ text: documentText }] }];
+      const text = await callAIChat(msgs, FULL_ANALYSIS_SYSTEM_PROMPT, settings, envApiKey);
+      if (text) {
+        try {
+          const clean = extractJsonFromText(text);
+          const parsed = JSON.parse(clean);
+          if (parsed.summary || parsed.tags) {
+            // 建立分析節點（摘要＋標籤）
+            const analysisId = generateUniqueId();
+            const analysisNode = {
+              id: analysisId, title: '📋 AI 整文分析', content: '', note: '',
+              children: [
+                { id: generateUniqueId(), title: '📝 全文摘要', content: parsed.summary || '', note: '', children: [] },
+              ],
+            };
+            if (parsed.tags?.length > 0) {
+              analysisNode.children.push({
+                id: generateUniqueId(), title: '🏷 建議標籤',
+                content: parsed.tags.map(t => `#${t.replace(/\s+/g, '')}`).join(' '),
+                note: '', children: [],
+              });
+            }
+
+            // 插入分析節點至根節點 siblings 的最前方（全文開頭）
+            commitChange(t => {
+              const c = deepCloneKepanTree(t);
+              c.unshift(analysisNode);
+              return c;
             });
-          }
 
-          // 插入分析節點至根節點 siblings 的最前方（全文開頭）
-          commitChange(t => {
-            const c = deepCloneKepanTree(t);
-            c.unshift(analysisNode);
-            return c;
-          });
-
-          setExpandedTreeNodes(p => new Set(p).add(analysisId));
-          showToast('AI 分析完成！摘要＋標籤已置頂。');
-        } else throw new Error('缺少必要欄位');
-      } catch (e) {
-        showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 150)}`);
+            setExpandedTreeNodes(p => new Set(p).add(analysisId));
+            showToast('AI 分析完成！摘要＋標籤已置頂。');
+          } else throw new Error('缺少必要欄位');
+        } catch (e) {
+          showToast(`AI 分析格式解析失敗：${e.message}。原始回覆：${text.substring(0, 150)}`);
+        }
+      } else {
+        showToast('AI 無回應，請檢查 API 金鑰設定。');
       }
-    } else {
-      showToast('AI 無回應，請檢查 API 金鑰設定。');
+    } catch (e) {
+      showToast(`AI 呼叫失敗：${e.message}`);
     }
     setIsAILoadingId(null);
   }, [kepanTree, settings, collectAllText, commitChange, showToast]);

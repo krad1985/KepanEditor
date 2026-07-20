@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { X, Settings, Key, FileText, Type, ExternalLink } from 'lucide-react';
-import { AI_PROVIDERS, GEMINI_MODELS, ZEN_MODELS, OPENROUTER_MODELS, FONT_OPTIONS } from '../constants/settings';
+import { X, Settings, Key, FileText, Type, ExternalLink, Trash2 } from 'lucide-react';
+import { AI_PROVIDERS, GEMINI_MODELS, ZEN_MODELS, OPENROUTER_MODELS, FONT_OPTIONS, STORAGE_KEYS } from '../constants/settings';
 import { AI_PROMPT_PRESETS } from '../constants/prompts';
 
 const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, themeConfig, isDark }) => {
@@ -105,7 +105,11 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
             className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`} />
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <button onClick={() => { if (confirm('確定要清除所有儲存的資料嗎？這會移除所有科判內容、設定與 API 金鑰。')) { localStorage.removeItem(STORAGE_KEYS.AUTOSAVE); localStorage.removeItem(STORAGE_KEYS.SETTINGS); localStorage.removeItem('kepan-ai-bg'); location.reload(); } }}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm rounded border transition-colors ${isDark ? 'border-red-800 text-red-400 hover:bg-red-900/30' : 'border-red-300 text-red-600 hover:bg-red-50'}`}>
+            <Trash2 size={14} /> 清除所有資料
+          </button>
           <button onClick={onSave} className={`px-6 py-2 text-white rounded font-medium transition-colors ${isDark ? 'bg-teal-700 hover:bg-teal-600' : 'bg-teal-600 hover:bg-teal-700'}`}>確認並儲存</button>
         </div>
       </div>
