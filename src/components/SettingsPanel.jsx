@@ -1,13 +1,13 @@
 import React from 'react';
 import { X, Settings, Key, FileText, Type } from 'lucide-react';
-import { AI_PROVIDERS, GEMINI_MODELS, OPENROUTER_MODELS, FONT_OPTIONS } from '../constants/settings';
+import { AI_PROVIDERS, GEMINI_MODELS, ZEN_MODELS, OPENROUTER_MODELS, FONT_OPTIONS } from '../constants/settings';
 import { AI_PROMPT_PRESETS } from '../constants/prompts';
 
 const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, themeConfig, isDark }) => {
   if (!visible) return null;
 
   const provider = AI_PROVIDERS.find(p => p.value === settings.apiProvider) || AI_PROVIDERS[0];
-  const modelList = settings.apiProvider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
+  const modelList = settings.apiProvider === 'zen' ? ZEN_MODELS : settings.apiProvider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -30,7 +30,7 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
           <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>AI 提供者</label>
           <div className="flex gap-2 mb-3">
             {AI_PROVIDERS.map(p => (
-              <button key={p.value} onClick={() => onSettingsChange({ apiProvider: p.value, apiModel: p.value === 'openrouter' ? OPENROUTER_MODELS[0].value : GEMINI_MODELS[0].value })}
+              <button key={p.value} onClick={() => onSettingsChange({ apiProvider: p.value, apiModel: p.value === 'zen' ? ZEN_MODELS[0].value : p.value === 'openrouter' ? OPENROUTER_MODELS[0].value : GEMINI_MODELS[0].value })}
                 className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${settings.apiProvider === p.value ? (isDark ? 'bg-teal-700/30 border-teal-500 text-teal-300' : 'bg-teal-50 border-teal-400 text-teal-700') : `${themeConfig.btnHover} ${themeConfig.panelBorder}`}`}>
                 {p.label}
               </button>
@@ -58,7 +58,7 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
           <div className="mb-6 animate-in fade-in">
             <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
             <input type="text" value={settings.customModel} onChange={e => onSettingsChange({ customModel: e.target.value })}
-              placeholder={settings.apiProvider === 'openrouter' ? '如: anthropic/claude-sonnet-4-6' : '如: gemini-4-flash'}
+              placeholder={settings.apiProvider === 'zen' ? '如: deepseek-v4-flash-free' : settings.apiProvider === 'openrouter' ? '如: anthropic/claude-sonnet-4-6' : '如: gemini-4-flash'}
               className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`} />
           </div>
         )}
