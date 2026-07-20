@@ -1,7 +1,7 @@
 export const DEFAULT_SETTINGS = {
   themeKey: 'default',
   apiProvider: 'gemini',
-  apiKeys: { gemini: '', zen: '', openrouter: '' },
+  apiKeys: { gemini: '', openrouter: '' },
   apiModel: 'gemini-2.5-flash',
   customModel: '',
   fontFamily: 'font-sans',
@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS = {
 
 export const AI_PROVIDERS = [
   { label: 'Google Gemini', value: 'gemini', url: 'https://aistudio.google.com/apikey' },
-  { label: 'OpenCode Zen', value: 'zen', url: 'https://opencode.ai/zht/zen' },
   { label: 'OpenRouter', value: 'openrouter', url: 'https://openrouter.ai/keys' },
 ];
 
@@ -19,18 +18,6 @@ export const GEMINI_MODELS = [
   { label: 'Gemini 1.5 Flash (免費配額充裕)', value: 'gemini-1.5-flash' },
   { label: 'Gemini 1.5 Pro (深度推理)', value: 'gemini-1.5-pro' },
   { label: 'Gemini 2.0 Flash Exp (實驗性・免費)', value: 'gemini-2.0-flash-exp' },
-  { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' },
-];
-
-export const ZEN_MODELS = [
-  { label: '🆓 DeepSeek V4 Flash Free', value: 'deepseek-v4-flash-free' },
-  { label: '🆓 Nemotron 3 Ultra Free', value: 'nemotron-3-ultra-free' },
-  { label: '🆓 MiMo-V2.5 Free', value: 'mimo-v2.5-free' },
-  { label: '🆓 North Mini Code Free', value: 'north-mini-code-free' },
-  { label: '🆓 Big Pickle (神秘模型)', value: 'big-pickle' },
-  { label: 'GPT 5.6 Sol', value: 'gpt-5.6-sol' },
-  { label: 'GPT 5', value: 'gpt-5' },
-  { label: 'DeepSeek V4 Flash (付費)', value: 'deepseek-v4-flash' },
   { label: '⚙️ 自訂模型 (手動輸入)', value: 'custom' },
 ];
 

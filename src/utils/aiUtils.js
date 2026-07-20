@@ -88,53 +88,10 @@ const callOpenRouterChat = async (messages, systemInstruction, settings, envFall
   return null;
 };
 
-/* OpenCode Zen API 呼叫 (OpenAI-compatible) */
-const callZenChat = async (messages, systemInstruction, settings, envFallbackKey) => {
-  const rawKey = settings.apiKeys?.zen || '';
-  const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
-  const key = keys[0] || envFallbackKey;
-  if (!key) throw new Error('未設定 OpenCode Zen API 金鑰，請至設定頁面輸入。');
-  const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
-  const oaiMessages = [];
-  if (systemInstruction) oaiMessages.push({ role: 'system', content: systemInstruction });
-  for (const msg of messages) {
-    if (msg.role === 'user') oaiMessages.push({ role: 'user', content: msg.parts.map(p => p.text).join('\n') });
-    else if (msg.role === 'model') oaiMessages.push({ role: 'assistant', content: msg.parts.map(p => p.text).join('\n') });
-  }
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetchWithTimeout('https://opencode.ai/zen/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`,
-        },
-        body: JSON.stringify({ model, messages: oaiMessages }),
-      }, 60000);
-      if (!res.ok) {
-        const errBody = await res.text();
-        throw new Error(`OpenCode Zen HTTP ${res.status}：${errBody.substring(0, 300)}`);
-      }
-      const data = await res.json();
-      if (data.error) throw new Error(`OpenCode Zen：${data.error.message || JSON.stringify(data.error)}`);
-      const text = data.choices?.[0]?.message?.content;
-      if (text) return text;
-      throw new Error('OpenCode Zen 回傳為空');
-    } catch (e) {
-      console.error('[Zen]', e);
-      if (attempt < 1) await new Promise(r => setTimeout(r, 1500));
-      else throw e;
-    }
-  }
-  return null;
-};
-
 /* 統一的 AI 呼叫入口 */
 export const callAIChat = async (messages, systemInstruction, settings, envFallbackKey = '') => {
   if (!settings.apiProvider || settings.apiProvider === 'gemini') {
     return callGeminiChat(messages, systemInstruction, settings, envFallbackKey);
-  } else if (settings.apiProvider === 'zen') {
-    return callZenChat(messages, systemInstruction, settings, envFallbackKey);
   } else if (settings.apiProvider === 'openrouter') {
     return callOpenRouterChat(messages, systemInstruction, settings, envFallbackKey);
   }

@@ -79,7 +79,7 @@ export default function App() {
       const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
       // 向下相容：舊版 apiKeys 是字串，遷移至新格式
       if (typeof parsed.apiKeys === 'string') {
-        parsed.apiKeys = { gemini: parsed.apiKeys, zen: '', openrouter: '' };
+        parsed.apiKeys = { gemini: parsed.apiKeys, openrouter: '' };
       }
       return parsed;
     } catch { return DEFAULT_SETTINGS; }
@@ -268,13 +268,13 @@ export default function App() {
     if (!chatInput.trim() || !explainData || explainData.loading) return;
     const um = { role: 'user', parts: [{ text: chatInput }] };
     const up = [...explainData.messages, um];
-    setExplainData(p => ({ ...p, messages: up, loading: true })); setChatInput('');
+    setExplainData(p => p ? { ...p, messages: up, loading: true } : null); setChatInput('');
     try {
       const r = await callAIChat(up, EXPLAIN_FOLLOWUP_PROMPT, settings, envApiKey);
-      if (r) setExplainData(p => ({ ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false }));
-      else setExplainData(p => ({ ...p, loading: false }));
+      if (r) setExplainData(p => p ? { ...p, messages: [...p.messages, { role: 'model', parts: [{ text: r }] }], loading: false } : null);
+      else setExplainData(p => p ? { ...p, loading: false } : null);
     } catch (e) {
-      setExplainData(p => ({ ...p, loading: false }));
+      setExplainData(p => p ? { ...p, loading: false } : null);
       showToast(`AI 呼叫失敗：${e.message}`);
     }
   }, [chatInput, explainData, settings, showToast]);

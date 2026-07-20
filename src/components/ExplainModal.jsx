@@ -8,7 +8,7 @@ const ExplainModal = ({ explainData, onClose, chatInput, onChatInputChange, onSe
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className={`w-full max-w-4xl rounded-xl shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border flex flex-col h-[85vh]`}>
         <div className={`flex justify-between items-center p-4 border-b ${themeConfig.panelBorder}`}>
-          <h2 className="text-lg font-bold flex items-center gap-2"><Sparkles size={18} className="text-purple-500" /> AI 法師陪你研討</h2>
+          <h2 className="text-lg font-bold flex items-center gap-2"><Sparkles size={18} className="text-purple-500" /> 消文研討</h2>
           <button onClick={onClose} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
         </div>
         <div className={`p-4 border-b ${themeConfig.panelBorder} bg-purple-500/5`}>

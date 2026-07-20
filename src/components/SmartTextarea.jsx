@@ -127,7 +127,7 @@ const SmartTextarea = ({ value, onChange, onSplit, onExplain, onCreateNode, plac
         <div className={`absolute -top-8 right-0 flex gap-1 p-1 rounded shadow-md border transition-opacity z-10 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}>
           <button onMouseDown={e => { e.preventDefault(); applyFormat('==', '=='); }} className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-yellow-600 dark:text-yellow-400`} title="標記重點"><Highlighter size={12} className="mr-1"/> 重點</button>
           <button onMouseDown={e => { e.preventDefault(); applyFormat('**', '**'); }} className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-teal-600 dark:text-teal-400`} title="標記粗體"><Bold size={12} className="mr-1"/> 粗體</button>
-          <button onMouseDown={handleExplain} className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-purple-600 dark:text-purple-400`} title="AI 法師陪你研討"><Sparkles size={12} className="mr-1"/> 法師</button>
+          <button onMouseDown={handleExplain} className={`flex items-center px-2 py-1 text-xs rounded font-medium transition-colors ${themeConfig.btnHover} text-purple-600 dark:text-purple-400`} title="消文研討"><Sparkles size={12} className="mr-1"/> 消文</button>
         </div>
 
         {/* / 快速插入選單 */}
