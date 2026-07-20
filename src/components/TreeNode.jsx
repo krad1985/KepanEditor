@@ -72,7 +72,7 @@ const TreeNode = memo(({
         onClick={() => { if (mode === 'split') { const el = document.getElementById(`split-content-${kepanNode.id}`); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.add('ring-2','ring-teal-400','bg-teal-500/10'); setTimeout(() => el.classList.remove('ring-2','ring-teal-400','bg-teal-500/10'), 1500); } } }}>
 
         {(mode === 'outline' || mode === 'split') && (
-          <div draggable onDragStart={e => actions.handleDragStart(e, kepanNode.id)} className="mt-1 cursor-grab opacity-0 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-stone-600"><GripVertical size={16} /></div>
+          <div draggable onDragStart={e => actions.handleDragStart(e, kepanNode.id)} className="mt-1.5 cursor-grab opacity-30 group-hover:opacity-100 transition-opacity text-stone-400 hover:text-teal-600 shrink-0"><GripVertical size={18} /></div>
         )}
 
         {(mode === 'outline' || mode === 'split') && hasChildren ? (
