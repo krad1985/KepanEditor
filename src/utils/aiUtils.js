@@ -1,6 +1,7 @@
 /* Gemini 原生 API 呼叫 */
 const callGeminiChat = async (messages, systemInstruction, settings, envFallbackKey) => {
-  const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
+  const rawKey = settings.apiKeys?.gemini || '';
+  const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
   if (!key) return null;
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
@@ -28,7 +29,8 @@ const callGeminiChat = async (messages, systemInstruction, settings, envFallback
 
 /* OpenRouter API 呼叫 (相容 OpenAI Chat Completions 格式) */
 const callOpenRouterChat = async (messages, systemInstruction, settings, envFallbackKey) => {
-  const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
+  const rawKey = settings.apiKeys?.openrouter || '';
+  const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
   if (!key) return null;
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
@@ -69,7 +71,8 @@ const callOpenRouterChat = async (messages, systemInstruction, settings, envFall
 
 /* OpenCode Zen API 呼叫 (OpenAI-compatible) */
 const callZenChat = async (messages, systemInstruction, settings, envFallbackKey) => {
-  const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
+  const rawKey = settings.apiKeys?.zen || '';
+  const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
   if (!key) return null;
   const model = settings.apiModel === 'custom' ? settings.customModel : settings.apiModel;
@@ -118,7 +121,8 @@ export const callAIChat = async (messages, systemInstruction, settings, envFallb
 };
 
 export const callImagenAPI = async (visualPrompt, settings, envFallbackKey = '') => {
-  const keys = (settings.apiKeys || '').split(',').map(k => k.trim()).filter(Boolean);
+  const rawKey = settings.apiKeys?.gemini || '';
+  const keys = rawKey.split(',').map(k => k.trim()).filter(Boolean);
   const key = keys[0] || envFallbackKey;
   if (!key) return null;
 

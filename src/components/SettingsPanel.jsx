@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Settings, Key, FileText, Type } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { X, Settings, Key, FileText, Type, ExternalLink } from 'lucide-react';
 import { AI_PROVIDERS, GEMINI_MODELS, ZEN_MODELS, OPENROUTER_MODELS, FONT_OPTIONS } from '../constants/settings';
 import { AI_PROMPT_PRESETS } from '../constants/prompts';
 
@@ -9,6 +9,24 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
   const provider = AI_PROVIDERS.find(p => p.value === settings.apiProvider) || AI_PROVIDERS[0];
   const modelList = settings.apiProvider === 'zen' ? ZEN_MODELS : settings.apiProvider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
 
+  // 向下相容：舊版 apiKeys 是字串，自動遷移至 gemini
+  useEffect(() => {
+    if (typeof settings.apiKeys === 'string') {
+      const migrated = { gemini: settings.apiKeys, zen: '', openrouter: '' };
+      onSettingsChange({ apiKeys: migrated });
+    }
+  }, []); // eslint-disable-line
+
+  const currentKey = typeof settings.apiKeys === 'object' ? (settings.apiKeys[settings.apiProvider] || '') : '';
+  const updateKey = (val) => {
+    const newKeys = { ...(typeof settings.apiKeys === 'object' ? settings.apiKeys : { gemini: settings.apiKeys || '', zen: '', openrouter: '' }) };
+    newKeys[settings.apiProvider] = val;
+    onSettingsChange({ apiKeys: newKeys });
+  };
+
+  const placeholders = { gemini: '輸入 Gemini API 金鑰（可多組逗號分隔）', zen: '輸入 OpenCode Zen API 金鑰', openrouter: '輸入 OpenRouter API 金鑰' };
+  const customPlaceholders = { zen: '如: deepseek-v4-flash-free', openrouter: '如: anthropic/claude-sonnet-4-6', gemini: '如: gemini-4-flash' };
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className={`w-full max-w-2xl rounded-xl p-6 shadow-2xl ${themeConfig.panelBg} ${themeConfig.text} ${themeConfig.panelBorder} border max-h-[90vh] overflow-y-auto`}>
@@ -17,18 +35,19 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
           <button onClick={onClose} className={`p-1 rounded-full ${themeConfig.btnHover}`}><X size={20}/></button>
         </div>
 
+        {/* 字型 */}
         <div className="mb-6">
-          <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Type size={16} className="inline mr-1" /> 偏好字型 (全域)</label>
+          <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Type size={16} className="inline mr-1" /> 偏好字型</label>
           <select className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-stone-800 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200 text-stone-800'} text-sm`}
             onChange={e => onSettingsChange({ fontFamily: e.target.value })} value={settings.fontFamily}>
             {FONT_OPTIONS.map(f => <option key={f.value} value={f.value} className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>{f.label}</option>)}
           </select>
         </div>
 
-        <div className="mb-6">
-          {/* 提供者選擇 */}
+        {/* Provider 切換 */}
+        <div className="mb-4">
           <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>AI 提供者</label>
-          <div className="flex gap-2 mb-3">
+          <div className="flex gap-2">
             {AI_PROVIDERS.map(p => (
               <button key={p.value} onClick={() => onSettingsChange({ apiProvider: p.value, apiModel: p.value === 'zen' ? ZEN_MODELS[0].value : p.value === 'openrouter' ? OPENROUTER_MODELS[0].value : GEMINI_MODELS[0].value })}
                 className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${settings.apiProvider === p.value ? (isDark ? 'bg-teal-700/30 border-teal-500 text-teal-300' : 'bg-teal-50 border-teal-400 text-teal-700') : `${themeConfig.btnHover} ${themeConfig.panelBorder}`}`}>
@@ -38,11 +57,20 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
           </div>
         </div>
 
+        {/* 取得金鑰連結 */}
+        <div className="mb-4">
+          <a href={provider.url} target="_blank" rel="noopener noreferrer"
+            className={`inline-flex items-center gap-1 text-xs ${isDark ? 'text-teal-400 hover:text-teal-300' : 'text-teal-600 hover:text-teal-700'}`}>
+            <ExternalLink size={12} /> 取得 {provider.label} API 金鑰
+          </a>
+        </div>
+
+        {/* API Key + 模型選擇 */}
         <div className="mb-6 flex gap-4">
           <div className="flex-1">
-            <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1" /> {provider.keyLabel}</label>
-            <textarea value={settings.apiKeys} onChange={e => onSettingsChange({ apiKeys: e.target.value })}
-              placeholder={provider.keyPlaceholder} rows={2}
+            <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Key size={16} className="inline mr-1" /> API Key</label>
+            <textarea value={currentKey} onChange={e => updateKey(e.target.value)}
+              placeholder={placeholders[settings.apiProvider] || ''} rows={2}
               className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm font-mono`} />
           </div>
           <div className="w-1/3">
@@ -54,17 +82,19 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
           </div>
         </div>
 
+        {/* 自訂模型 */}
         {settings.apiModel === 'custom' && (
           <div className="mb-6 animate-in fade-in">
             <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}>自訂模型名稱</label>
             <input type="text" value={settings.customModel} onChange={e => onSettingsChange({ customModel: e.target.value })}
-              placeholder={settings.apiProvider === 'zen' ? '如: deepseek-v4-flash-free' : settings.apiProvider === 'openrouter' ? '如: anthropic/claude-sonnet-4-6' : '如: gemini-4-flash'}
+              placeholder={customPlaceholders[settings.apiProvider] || '模型名稱'}
               className={`w-full p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-black/30 border-stone-700 text-white' : 'focus:ring-teal-400 bg-white border-stone-200'} text-sm`} />
           </div>
         )}
 
+        {/* 提示詞 */}
         <div className="mb-6">
-          <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1" /> 自訂 AI 拆分提示詞 (System Prompt)</label>
+          <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><FileText size={16} className="inline mr-1" /> 自訂 AI 拆分提示詞</label>
           <select className={`w-full mb-2 p-2 rounded border focus:outline-none focus:ring-2 ${isDark ? 'focus:ring-teal-500 bg-stone-800 border-stone-700 text-stone-200' : 'focus:ring-teal-400 bg-white border-stone-200 text-stone-800'} text-sm`}
             onChange={e => onSettingsChange({ aiPrompt: e.target.value })}
             value={AI_PROMPT_PRESETS.find(p => p.value === settings.aiPrompt) ? settings.aiPrompt : 'custom'}>

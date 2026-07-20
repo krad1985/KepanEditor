@@ -1,7 +1,7 @@
 export const DEFAULT_SETTINGS = {
   themeKey: 'default',
   apiProvider: 'gemini',
-  apiKeys: '',
+  apiKeys: { gemini: '', zen: '', openrouter: '' },
   apiModel: 'gemini-2.5-flash',
   customModel: '',
   fontFamily: 'font-sans',
@@ -9,9 +9,9 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const AI_PROVIDERS = [
-  { label: 'Google Gemini', value: 'gemini', keyLabel: 'Gemini API Key', keyPlaceholder: '輸入您的 Gemini API 金鑰。可多組逗號分隔以輪替避開限制。' },
-  { label: 'OpenCode Zen (推薦・免費模型多)', value: 'zen', keyLabel: 'OpenCode Zen API Key', keyPlaceholder: '從 opencode.ai/workspace 取得 API 金鑰。' },
-  { label: 'OpenRouter (多模型聚合)', value: 'openrouter', keyLabel: 'OpenRouter API Key', keyPlaceholder: '輸入 OpenRouter API 金鑰 (免費註冊，可存取多種模型)' },
+  { label: 'Google Gemini', value: 'gemini', url: 'https://aistudio.google.com/apikey' },
+  { label: 'OpenCode Zen', value: 'zen', url: 'https://opencode.ai/workspace' },
+  { label: 'OpenRouter', value: 'openrouter', url: 'https://openrouter.ai/keys' },
 ];
 
 export const GEMINI_MODELS = [
