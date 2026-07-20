@@ -10,7 +10,7 @@ export const DEFAULT_SETTINGS = {
 
 export const AI_PROVIDERS = [
   { label: 'Google Gemini', value: 'gemini', url: 'https://aistudio.google.com/apikey' },
-  { label: 'OpenCode Zen', value: 'zen', url: 'https://opencode.ai/workspace' },
+  { label: 'OpenCode Zen', value: 'zen', url: 'https://opencode.ai/zht/zen' },
   { label: 'OpenRouter', value: 'openrouter', url: 'https://openrouter.ai/keys' },
 ];
 
