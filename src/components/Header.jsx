@@ -8,7 +8,7 @@ const MODES = [
   { key: 'map', label: '鳥瞰', icon: Map },
 ];
 
-const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect, onAnalyze }) => {
+const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSettings, onNewFile, onImportFile, onCopyMarkdown, onExportJSON, onExportMarkdown, onExportWord, isDark, themeConfig, isThemeMenuOpen, onToggleThemeMenu, onSelectTheme, THEMES, activeThemeKey, onExpandAll, onCollapseAll, onOpenShortcuts, searchQuery, onSearchChange, searchResults, onSearchSelect, onAnalyze }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const searchRef = useRef(null);
@@ -143,13 +143,15 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
       {/* 匯出下拉選單 (在 overflow 容器之外 render) */}
       {exportOpen && dropdownPos.export && (
         <div data-export-panel
-          className={`fixed w-40 rounded shadow-xl border overflow-hidden z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}
+          className={`fixed w-44 rounded shadow-xl border overflow-hidden z-50 ${themeConfig.panelBg} ${themeConfig.panelBorder}`}
           style={{ top: dropdownPos.export.top, left: dropdownPos.export.left }}>
           <button onClick={() => { onCopyMarkdown(); setExportOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Copy size={11} /> 複製 Markdown (Notion)</button>
           <div className={`h-px w-full ${themeConfig.border}`} />
           <button onClick={() => { onExportJSON(); setExportOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 備份 JSON</button>
           <div className={`h-px w-full ${themeConfig.border}`} />
           <button onClick={() => { onExportMarkdown(); setExportOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 匯出 Markdown (Obsidian)</button>
+          <div className={`h-px w-full ${themeConfig.border}`} />
+          <button onClick={() => { onExportWord(); setExportOpen(false); }} className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${themeConfig.btnHover}`}><Save size={11} /> 匯出 Word (.docx)</button>
         </div>
       )}
 

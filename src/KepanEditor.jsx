@@ -23,6 +23,7 @@ import {
 } from './utils/markdownUtils';
 import { callAIChat, callImagenAPI } from './utils/aiUtils';
 import { formatRichText } from './utils/formatUtils';
+import { treeToDocxBlob } from './utils/docxExport';
 
 /* ---- Hooks ---- */
 import { useUndoRedo } from './hooks/useUndoRedo';
@@ -291,6 +292,16 @@ export default function App() {
     showToast('Markdown 已複製到剪貼簿，請至 Notion 貼上！');
   }, [kepanTree, showToast]);
 
+  const handleExportWord = useCallback(async () => {
+    try {
+      const title = kepanTree[0]?.title || '科判';
+      const blob = await treeToDocxBlob(kepanTree, title);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${title}.docx`; a.click(); URL.revokeObjectURL(url);
+      showToast('Word 檔案已匯出！');
+    } catch { showToast('匯出 Word 失敗'); }
+  }, [kepanTree, showToast]);
+
   const handleImportFile = useCallback((e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -451,7 +462,7 @@ export default function App() {
     <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} isDark={isDark} />
       <LoadingOverlay visible={!!isAILoadingId} isDark={isDark} />
-      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} onAnalyze={handleFullAnalysis} />
+      <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} onExportWord={handleExportWord} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} onAnalyze={handleFullAnalysis} />
       <Breadcrumbs path={currentBreadcrumbPath} activeDropdownId={activeBreadcrumbDropdown} onSetFocus={setFocusId} onToggleDropdown={setActiveBreadcrumbDropdown} onClearFocus={handleClearFocus} themeConfig={themeConfig} />
       <main className="flex-1 overflow-auto p-4 md:p-8 flex justify-center" onClick={() => { setActiveBreadcrumbDropdown(null); setIsThemeMenuOpen(false); }}>
         {mode === 'map' ? (
