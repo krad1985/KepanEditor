@@ -73,8 +73,16 @@ export default function App() {
     catch { return INITIAL_EMPTY_KEPAN_TREE; }
   });
   const [initialSettings] = useState(() => {
-    try { const s = localStorage.getItem(STORAGE_KEYS.SETTINGS); return s ? { ...DEFAULT_SETTINGS, ...JSON.parse(s) } : DEFAULT_SETTINGS; }
-    catch { return DEFAULT_SETTINGS; }
+    try {
+      const s = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      if (!s) return DEFAULT_SETTINGS;
+      const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(s) };
+      // 向下相容：舊版 apiKeys 是字串，遷移至新格式
+      if (typeof parsed.apiKeys === 'string') {
+        parsed.apiKeys = { gemini: parsed.apiKeys, zen: '', openrouter: '' };
+      }
+      return parsed;
+    } catch { return DEFAULT_SETTINGS; }
   });
 
   const { present: kepanTree, commitChange, undo, redo, canUndo, canRedo, reset } = useUndoRedo(initialTree);
