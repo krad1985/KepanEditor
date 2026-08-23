@@ -5,6 +5,7 @@ export const DEFAULT_SETTINGS = {
   apiModel: 'gemini-2.5-flash',
   customModel: '',
   fontFamily: 'font-sans',
+  fontSize: 'medium',
   aiPrompt: `請分析以下佛教經典/開示原文，將其意群切分為合適的子科判骨架。\n必須嚴格回傳 JSON 格式，架構如下 (只需回傳子層陣列):\n[ { "title": "科判標題", "content": "該標題對應的拆分後內文", "note": "" } ]\n\n注意：請務必只回傳合法的 JSON 陣列，不要有任何多餘的解釋文字。`,
 };
 
@@ -45,6 +46,12 @@ export const FONT_OPTIONS = [
   { label: '等寬辨析 (Monospace)', value: 'font-mono' },
   { label: '思源黑體 (Noto Sans)', value: 'font-noto' },
   { label: '霞鶩文楷 (LXGW)', value: 'font-lxgw' },
+];
+
+export const FONT_SIZE_OPTIONS = [
+  { label: '小（精簡）', value: 'small', px: '15px' },
+  { label: '中（預設）', value: 'medium', px: '17px' },
+  { label: '大（舒適）', value: 'large', px: '20px' },
 ];
 
 export const FONT_STYLES = {

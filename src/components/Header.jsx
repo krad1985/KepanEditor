@@ -52,10 +52,12 @@ const Header = ({ mode, onModeChange, canUndo, canRedo, onUndo, onRedo, onOpenSe
     <header className={`shadow-sm px-2 py-1.5 sticky top-0 z-20 border-b ${themeConfig.headerBg} ${themeConfig.border}`}>
       <div className="flex items-center gap-0.5 overflow-x-auto flex-nowrap"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-        {/* 標題 */}
-        <h1 className="text-sm font-bold flex items-center gap-1 shrink-0 mr-1.5">
-          <ListTree size={16} className={themeConfig.bold.split(' ')[0]} />
-          <span className="hidden sm:inline">聞思</span>
+        {/* 標題 — 題簽：線裝書封面的書籤條 */}
+        <h1 className="flex items-center shrink-0 mr-1.5">
+          <span className={`tiqian-seal inline-flex items-center justify-center rounded-[3px] px-1.5 shadow-sm ring-1 ring-black/10 bg-[#9e2b25] text-[#fdf6ec] text-[15px] font-bold leading-6 ${themeConfig.isDark ? '' : 'ring-white/40'}`}>
+            聞思
+          </span>
+          <span className="ml-1 w-1 self-stretch rounded-full bg-gradient-to-b from-transparent via-[#9e2b25]/50 to-transparent" aria-hidden="true" />
         </h1>
 
         {/* 檔案操作 */}

@@ -3,7 +3,63 @@
 @tailwind utilities;
 
 html, body {
-margin: 0;
-padding: 0;
-min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* ── 經本材質層（僅外層桌面；內容面板保持素淨） ── */
+
+/* 全域紙紋：fixed 於最底層，不影響版面與 sticky */
+.paper-layer {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  background-size: 512px;
+  background-repeat: repeat;
+  pointer-events: none;
+}
+/* 淺色：CSS 簾紋（宣紙水平簾痕），完全可控無雜訊 */
+.paper-light {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 11px,
+      rgba(168,148,128,0.06) 11px,
+      rgba(168,148,128,0.06) 12px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 23px,
+      rgba(168,148,128,0.03) 23px,
+      rgba(168,148,128,0.03) 24px
+    );
+  opacity: 1;
+}
+/* 深色：保留 flux 紋理（檀木纖維），較不干擾 */
+.paper-dark {
+  background-image: url('./assets/paper-dark.png');
+  mix-blend-mode: screen;
+  opacity: 0.14;
+}
+
+/* 題簽（線裝書封面書籤條） */
+.tiqian-seal {
+  font-family: 'LXGW WenKai TC', 'Kaiti TC', 'DFKai-SB', 'KaiTi', serif;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em; /* 抵銷末字 spacing，讓兩字視覺置中 */
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* 選字反白：朱砂呼應界格色 */
+::selection {
+  background: rgba(158, 43, 37, 0.22);
+}
+
+/* webfont 載入前的字距穩定 */
+body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }

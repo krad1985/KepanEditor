@@ -3,7 +3,7 @@ import { ListTree, Wand2 } from 'lucide-react';
 
 /* ---- 常數 ---- */
 import { THEMES, getTheme } from './constants/themes';
-import { DEFAULT_SETTINGS, STORAGE_KEYS, FONT_STYLES } from './constants/settings';
+import { DEFAULT_SETTINGS, STORAGE_KEYS, FONT_STYLES, FONT_SIZE_OPTIONS } from './constants/settings';
 import { INITIAL_EMPTY_KEPAN_TREE } from './constants/defaults';
 import { EXPLAIN_SYSTEM_PROMPT, EXPLAIN_FOLLOWUP_PROMPT, FULL_ANALYSIS_SYSTEM_PROMPT } from './constants/prompts';
 
@@ -125,6 +125,13 @@ export default function App() {
       document.body.appendChild(s);
     }
   }, []);
+
+  /* ===== 字體大小：設在 html 上讓所有 rem 單位等比縮放 ===== */
+  useEffect(() => {
+    const opt = FONT_SIZE_OPTIONS.find(o => o.value === settings.fontSize);
+    document.documentElement.style.fontSize = opt?.px || '17px';
+    return () => { document.documentElement.style.fontSize = ''; };
+  }, [settings.fontSize]);
 
   /* ===== 全域快捷鍵 ===== */
   useEffect(() => {
@@ -485,8 +492,10 @@ export default function App() {
   ));
 
   return (
-    <div className={`min-h-screen flex flex-col transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
+    <div className={`min-h-screen flex flex-col isolate transition-colors duration-300 ${themeConfig.bg} ${themeConfig.text}`} style={{ fontFamily: FONT_STYLES[settings.fontFamily] || FONT_STYLES['font-sans'] }}>
       <Toast message={toastMessage} onClose={() => setToastMessage(null)} isDark={isDark} />
+      {/* 經本紙紋底層 */}
+      <div aria-hidden="true" className={`paper-layer ${isDark ? 'paper-dark' : 'paper-light'}`} />
       <LoadingOverlay visible={!!isAILoadingId} isDark={isDark} />
       <Header mode={mode} onModeChange={setMode} canUndo={canUndo} canRedo={canRedo} onUndo={undo} onRedo={redo} onOpenSettings={() => setShowSettings(true)} onNewFile={handleNewFile} onImportFile={handleImportFile} onCopyMarkdown={handleCopyMarkdown} onExportJSON={handleExportJSON} onExportMarkdown={handleExportMarkdown} onExportWord={handleExportWord} isDark={isDark} themeConfig={themeConfig} isThemeMenuOpen={isThemeMenuOpen} onToggleThemeMenu={() => setIsThemeMenuOpen(v => !v)} onSelectTheme={handleSelectTheme} THEMES={THEMES} activeThemeKey={settings.themeKey} onExpandAll={expandAll} onCollapseAll={collapseAll} onOpenShortcuts={() => setShowShortcuts(true)} searchQuery={searchQuery} onSearchChange={handleSearchChange} searchResults={searchResults} onSearchSelect={handleSearchSelect} onAnalyze={handleFullAnalysis} />
       <Breadcrumbs path={currentBreadcrumbPath} activeDropdownId={activeBreadcrumbDropdown} onSetFocus={setFocusId} onToggleDropdown={setActiveBreadcrumbDropdown} onClearFocus={handleClearFocus} themeConfig={themeConfig} />

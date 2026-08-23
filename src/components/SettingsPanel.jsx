@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, Settings, Key, FileText, Type, ExternalLink, Trash2 } from 'lucide-react';
-import { AI_PROVIDERS, GEMINI_MODELS, OPENROUTER_MODELS, FONT_OPTIONS, STORAGE_KEYS } from '../constants/settings';
+import { AI_PROVIDERS, GEMINI_MODELS, OPENROUTER_MODELS, FONT_OPTIONS, FONT_SIZE_OPTIONS, STORAGE_KEYS } from '../constants/settings';
 import { AI_PROMPT_PRESETS } from '../constants/prompts';
 
 const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, themeConfig, isDark }) => {
@@ -42,6 +42,19 @@ const SettingsPanel = ({ visible, onClose, settings, onSettingsChange, onSave, t
             onChange={e => onSettingsChange({ fontFamily: e.target.value })} value={settings.fontFamily}>
             {FONT_OPTIONS.map(f => <option key={f.value} value={f.value} className={isDark ? 'bg-stone-800 text-stone-200' : 'bg-white text-stone-800'}>{f.label}</option>)}
           </select>
+        </div>
+
+        {/* 字體大小 */}
+        <div className="mb-6">
+          <label className={`block text-sm font-bold mb-2 ${themeConfig.bold}`}><Type size={16} className="inline mr-1" /> 字體大小</label>
+          <div className="flex gap-2">
+            {FONT_SIZE_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => onSettingsChange({ fontSize: opt.value })}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${settings.fontSize === opt.value ? (isDark ? 'bg-teal-700/30 border-teal-500 text-teal-300' : 'bg-teal-50 border-teal-400 text-teal-700') : `${themeConfig.btnHover} ${themeConfig.panelBorder}`}`}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Provider 切換 */}

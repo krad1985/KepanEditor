@@ -64,7 +64,12 @@ const TreeNode = memo(({
   };
 
   const sp = mode === 'text' ? 'mb-0' : 'mb-2';
-  const pl = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${themeConfig.border} pl-4` : 'ml-0';
+  /* 朱絲欄：層級縮進線取各深度色，讓樹狀結構本身成為抄經界格 */
+  const borders = themeConfig.depthBorders;
+  const depthBorderClass = borders && borders.length > 0
+    ? borders[depth % borders.length]
+    : themeConfig.border;
+  const pl = (mode === 'outline' || mode === 'split') && depth > 0 ? `ml-6 border-l-2 ${depthBorderClass} pl-4` : 'ml-0';
   return (
     <div className={`${sp} ${pl} ${isDragged ? 'opacity-30 scale-[0.98]' : 'opacity-100 scale-100'} transition-all duration-200`}>
       <div onDragOver={e => actions.handleDragOver(e, kepanNode.id)} onDrop={e => actions.handleDrop(e, kepanNode.id)}
