@@ -136,7 +136,7 @@ const TreeNode = memo(({
                 placeholder={mode === 'text' ? '在此輸入或貼上原文...' : '無內文'} themeConfig={themeConfig}
                 className={`w-full transition-all ${mode === 'outline' ? `text-sm p-2 rounded border ${themeConfig.outlineTextarea}` : `text-base leading-[1.8] py-1 rounded ${themeConfig.textarea}`}`} />
               {mode === 'text' && kepanNode.content && (
-                <div className="absolute bottom-1 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0 flex gap-2">
+                <div className="absolute -bottom-7 right-2 opacity-0 group-hover/text:opacity-100 pointer-events-none transition-all z-0 flex gap-2">
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Enter 同層拆分</span>
                   <span className="bg-teal-500/20 text-teal-600 text-xs px-2 py-1 rounded shadow backdrop-blur-sm">Ctrl+Shift+Enter 子層拆分</span>
                 </div>
